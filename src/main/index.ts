@@ -5,6 +5,8 @@ import { pathToFileURL } from 'node:url';
 import { pipeline, env } from '@huggingface/transformers';
 import { randomUUID } from 'node:crypto';
 import { PDFParse } from 'pdf-parse';
+import { MemoryController } from './memory/index.ts';
+import { IntelligenceController } from './intelligence/index.ts';
 
 const isDev = !app.isPackaged;
 const SUPPORTED = new Set(['.pdf', '.txt', '.md', '.mdx', '.json', '.js', '.jsx', '.ts', '.tsx', '.py', '.html', '.css', '.scss', '.yml', '.yaml', '.toml', '.ini', '.log', '.sh', '.sql', '.rs', '.go', '.java', '.c', '.h', '.cpp', '.env.example']);
@@ -12,7 +14,8 @@ const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'out', '.nex
 const MAX_FILE_BYTES = 20_000_000;
 const CHUNK_CHARS = 1200;
 const OVERLAP = 180;
-type Chunk = { id: string; path: string; relativePath: string; name: string; text: string; modifiedAt: number; embedding?: number[] };
+
+export type Chunk = { id: string; path: string; relativePath: string; name: string; text: string; modifiedAt: number; embedding?: number[] };
 let mainWindow: BrowserWindow | null = null;
 let chunks: Chunk[] = [];
 let indexedRoots: string[] = [];
@@ -399,8 +402,25 @@ async function deleteOllamaModel(modelName: string) {
   return { success: true, activeModel: activeLlmModel };
 }
 
+let memoryController: MemoryController | null = null;
+
 app.whenReady().then(async () => {
-  await loadIndex(); createWindow();
+  await loadIndex();
+  memoryController = new MemoryController(
+    app.getPath('userData'),
+    () => chunks,
+    () => activeLlmModel,
+    (channel, payload) => broadcast(channel, payload)
+  );
+  await memoryController.init();
+  const intelligenceController = new IntelligenceController(
+    memoryController.getStore(),
+    () => chunks,
+    () => activeLlmModel,
+    (channel, payload) => broadcast(channel, payload)
+  );
+  intelligenceController.registerIpcHandlers();
+  createWindow();
   globalShortcut.register('Alt+Shift+Space', () => { if (!mainWindow) createWindow(); mainWindow?.show(); mainWindow?.focus(); mainWindow?.webContents.send('search:focus'); });
   ipcMain.handle('app:info', () => ({ version: app.getVersion(), platform: process.platform, roots: indexedRoots, status: indexStatus, modelStatus, indexedChunks: chunks.length }));
   ipcMain.handle('folders:choose', async () => {
@@ -438,7 +458,8 @@ app.whenReady().then(async () => {
     return askRecallDesk(question);
   });
   ipcMain.handle('file:open', async (_event, filePath: string) => {
-    if (typeof filePath !== 'string' || !chunks.some(c => c.path === filePath)) throw new Error('This file is not in the current index.');
+    if (typeof filePath !== 'string' || !filePath.trim()) throw new Error('Invalid file path.');
+    if (!existsSync(filePath)) throw new Error(`File not found on disk: "${filePath}". It may have been moved, renamed, or deleted.`);
     return shell.openPath(filePath);
   });
   ipcMain.handle('index:clear', async () => { chunks = []; indexedRoots = []; indexStatus = { files: 0, chunks: 0, errors: 0, lastIndexedAt: null }; await saveIndex(); return true; });
