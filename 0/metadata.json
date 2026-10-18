@@ -1,0 +1,17 @@
+{
+  "cli_version": "0.11.5",
+  "checkpoint_id": "01M580V8RH896PFWEQKVB8JGFT",
+  "session_id": "c56fcce3-e67f-4429-8e0d-fcd4c50f061d",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-18T17:27:13.674639Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "test/clipboard-memory.test.ts"
+  ],
+  "agent": "Antigravity",
+  "model": "",
+  "turn_id": "bb681cb23da3",
+  "checkpoint_transcript_start": 1087,
+  "transcript_lines_at_start": 1087
+}
