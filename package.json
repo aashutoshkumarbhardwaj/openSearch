@@ -9,11 +9,14 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "package:linux": "npm run build && electron-builder --linux AppImage",
-    "package:mac": "npm run build && electron-builder --mac dmg",
+    "package:mac": "npm run build && electron-builder --mac dmg zip",
+    "package:win": "npm run build && electron-builder --win portable zip",
+    "package:linux": "npm run build && electron-builder --linux AppImage tar.gz",
+    "package:all": "npm run build && electron-builder -mwl",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test test/**/*.test.ts"
   },
+  "author": "Aashutosh kumar bhardwaj",
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
     "@types/pdf-parse": "^1.1.5",
@@ -40,17 +43,25 @@
       "out/**/*",
       "package.json"
     ],
-    "linux": {
-      "target": [
-        "AppImage"
-      ],
-      "category": "Utility"
-    },
     "mac": {
       "target": [
-        "dmg"
+        "dmg",
+        "zip"
       ],
       "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": [
+        "portable",
+        "zip"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "tar.gz"
+      ],
+      "category": "Utility"
     },
     "directories": {
       "output": "release"
