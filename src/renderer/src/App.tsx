@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlertCircle, ArrowDownToLine, ArrowUpRight, BookOpen, Bot,
-  BrainCircuit, Calendar, Check, CheckSquare, ChevronDown, CircleHelp,
-  Command, Cpu, Download, Edit3, FileCode2, FileStack, FileText, Folder,
-  FolderOpen, HardDrive, HelpCircle, History, Keyboard, Layers, Lightbulb,
-  ListTodo, LoaderCircle, LockKeyhole, Plus, RefreshCw, RotateCcw, Search,
-  Settings2, ShieldCheck, Sparkles, Trash2, X
+  Braces, BrainCircuit, Calendar, CalendarDays, Check, CheckCheck, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, CircleHelp,
+  ClipboardList, Clock, Command, Copy, Cpu, Download, Edit3, FileCode2, FileStack, FileText, Flame, Folder,
+  FolderOpen, Gauge, HardDrive, HelpCircle, History, Keyboard, Layers, Lightbulb, Link,
+  ListTodo, LoaderCircle, LockKeyhole, Pause, Pin, Play, Plus, RefreshCw, RotateCcw, Save, Search,
+  Settings2, Share2, ShieldCheck, Sparkles, Square, Tag, Terminal, Timer, Trash2, Volume2, VolumeX, X
 } from 'lucide-react';
 import type {
   MemoryItem, MemoryStatus, MemoryType, ExtractionProgress, MemorySearchResult,
   SourceItem, AnalysisGoal, Finding, FindingType, IntelligenceAnalysisResult,
-  IntelligenceProgress
+  IntelligenceProgress, ClipboardItem, ClipboardSettings, ClipboardContentType,
+  ClipboardSearchResult, DailyBriefing, BriefingFocusItem, BriefingTaskItem,
+  BriefingDecisionItem, BriefingActivityItem, BriefingSettings, BriefingScope,
+  ActionPlan, ActionPlanPhase, ActionPlanTask
 } from './vite-env';
 
 type Result = { id: string; path: string; relativePath: string; name: string; text: string; score: number; semantic: boolean };
@@ -57,9 +60,47 @@ function App() {
   } | null>(null);
   const [customModelInput, setCustomModelInput] = useState('');
   const [loadingModels, setLoadingModels] = useState(false);
-  const [view, setView] = useState<'search' | 'intelligence' | 'memory' | 'library' | 'settings'>('search');
+  const [view, setView] = useState<'briefing' | 'search' | 'clipboard' | 'intelligence' | 'memory' | 'library' | 'settings'>('search');
   const [filter, setFilter] = useState<'all' | 'code' | 'docs'>('all');
   const inputRef = useRef<HTMLInputElement>(null);
+  const clipboardInputRef = useRef<HTMLInputElement>(null);
+
+  // Daily Memory Briefing State
+  const [todayBriefing, setTodayBriefing] = useState<DailyBriefing | null>(null);
+  const [activeBriefing, setActiveBriefing] = useState<DailyBriefing | null>(null);
+  const [briefingHistory, setBriefingHistory] = useState<DailyBriefing[]>([]);
+  const [briefingSettings, setBriefingSettings] = useState<BriefingSettings | null>(null);
+  const [briefingActivity, setBriefingActivity] = useState<BriefingActivityItem[]>([]);
+  const [loadingBriefing, setLoadingBriefing] = useState(false);
+  const [generatingBriefing, setGeneratingBriefing] = useState(false);
+  const [briefingScope, setBriefingScope] = useState<string>('all');
+  const [briefingError, setBriefingError] = useState<string>('');
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [audioPlaybackRate, setAudioPlaybackRate] = useState<number>(1.0);
+  const [audioProgressText, setAudioProgressText] = useState<string>('');
+  const [activeFocusSession, setActiveFocusSession] = useState<{
+    taskTitle: string;
+    sourcePath?: string;
+    totalSeconds: number;
+    secondsLeft: number;
+    isRunning: boolean;
+  } | null>(null);
+  const [dailyIntent, setDailyIntent] = useState<string>('');
+  const [briefingTab, setBriefingTab] = useState<'overview' | 'deadlines' | 'focus' | 'decisions' | 'activity'>('overview');
+
+  // Searchable Clipboard Memory State
+  const [clipboardSettings, setClipboardSettings] = useState<ClipboardSettings | null>(null);
+  const [clipboardItems, setClipboardItems] = useState<ClipboardItem[]>([]);
+  const [clipboardQuery, setClipboardQuery] = useState('');
+  const [clipboardFilter, setClipboardFilter] = useState<'all' | 'pinned' | 'code' | 'command' | 'url' | 'text' | 'json'>('all');
+  const [copiedItemId, setCopiedItemId] = useState<string | null>(null);
+  const [editingLabelItem, setEditingLabelItem] = useState<ClipboardItem | null>(null);
+  const [labelInput, setLabelInput] = useState('');
+  const [confirmClearModal, setConfirmClearModal] = useState(false);
+  const [preservePinnedOnClear, setPreservePinnedOnClear] = useState(true);
+  const [loadingClipboard, setLoadingClipboard] = useState(false);
+  const [expandedSnippetIds, setExpandedSnippetIds] = useState<Set<string>>(new Set());
 
   // Decision & Task Memory State
   const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([]);
@@ -75,6 +116,17 @@ function App() {
     details: string;
     dueDate: string;
   }>({ type: 'task', title: '', details: '', dueDate: '' });
+
+  // Scope, Subview, Calendar & Action Plan State
+  const [memoryScopePaths, setMemoryScopePaths] = useState<string[]>([]);
+  const [memorySubView, setMemorySubView] = useState<'list' | 'calendar' | 'timeline' | 'plan'>('list');
+  const [actionPlans, setActionPlans] = useState<ActionPlan[]>([]);
+  const [activePlanId, setActivePlanId] = useState<string | null>(null);
+  const [calendarDate, setCalendarDate] = useState<Date>(new Date());
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [calendarNewTaskInput, setCalendarNewTaskInput] = useState<string>('');
+  const [activePlanNotes, setActivePlanNotes] = useState<string>('');
+  const [generatingPlan, setGeneratingPlan] = useState<boolean>(false);
 
   // Universal Project Intelligence State
   const [selectedSources, setSelectedSources] = useState<SourceItem[]>([]);
@@ -124,6 +176,31 @@ function App() {
       }
     } catch (e) {
       console.error('Failed to load memory items:', e);
+    }
+  }, []);
+
+  const refreshClipboardSettings = useCallback(async () => {
+    try {
+      if (window.recallDesk?.getClipboardSettings) {
+        const s = await window.recallDesk.getClipboardSettings();
+        setClipboardSettings(s);
+      }
+    } catch (e) {
+      console.error('Failed to load clipboard settings:', e);
+    }
+  }, []);
+
+  const refreshClipboardItems = useCallback(async () => {
+    try {
+      setLoadingClipboard(true);
+      if (window.recallDesk?.listClipboardItems) {
+        const items = await window.recallDesk.listClipboardItems();
+        setClipboardItems(items);
+      }
+    } catch (e) {
+      console.error('Failed to list clipboard items:', e);
+    } finally {
+      setLoadingClipboard(false);
     }
   }, []);
 
@@ -182,6 +259,297 @@ function App() {
     }
   };
 
+  const loadBriefingData = useCallback(async (scope = briefingScope) => {
+    try {
+      setLoadingBriefing(true);
+      if (window.recallDesk?.getBriefingSettings) {
+        const s = await window.recallDesk.getBriefingSettings();
+        setBriefingSettings(s);
+      }
+      if (window.recallDesk?.getTodayBriefing) {
+        const today = await window.recallDesk.getTodayBriefing(scope);
+        setTodayBriefing(today);
+        setActiveBriefing(today);
+      }
+      if (window.recallDesk?.listBriefingHistory) {
+        const history = await window.recallDesk.listBriefingHistory(30);
+        setBriefingHistory(history);
+      }
+      if (window.recallDesk?.getBriefingActivityLog) {
+        const act = await window.recallDesk.getBriefingActivityLog(15, scope);
+        setBriefingActivity(act);
+      }
+    } catch (e: any) {
+      console.warn('Failed to load briefing data:', e);
+    } finally {
+      setLoadingBriefing(false);
+    }
+  }, [briefingScope]);
+
+  const handleGenerateBriefing = async (force = false) => {
+    try {
+      setGeneratingBriefing(true);
+      setBriefingError('');
+      if (window.recallDesk?.generateBriefing) {
+        const briefing = await window.recallDesk.generateBriefing({
+          scope: briefingScope,
+          includeClipboard: briefingSettings?.includeClipboard || false,
+          forceRegenerate: force
+        });
+        setTodayBriefing(briefing);
+        setActiveBriefing(briefing);
+        const [hist, act] = await Promise.all([
+          window.recallDesk.listBriefingHistory(30),
+          window.recallDesk.getBriefingActivityLog(15, briefingScope)
+        ]);
+        setBriefingHistory(hist);
+        setBriefingActivity(act);
+        setNotice(force ? "Regenerated today's briefing." : "Daily memory briefing generated.");
+      }
+    } catch (e: any) {
+      setBriefingError(e?.message || 'Failed to generate briefing.');
+    } finally {
+      setGeneratingBriefing(false);
+    }
+  };
+
+  const handleDeleteBriefing = async (id: string) => {
+    if (!confirm('Delete this daily briefing from history? (Original tasks, decisions, and files are never touched.)')) return;
+    try {
+      if (window.recallDesk?.deleteBriefing) {
+        await window.recallDesk.deleteBriefing(id);
+        const hist = await window.recallDesk.listBriefingHistory(30);
+        setBriefingHistory(hist);
+        if (activeBriefing?.id === id) {
+          const todayDate = new Date().toISOString().slice(0, 10);
+          const next = hist.find(b => b.date === todayDate) || hist[0] || null;
+          setActiveBriefing(next);
+        }
+        setNotice('Saved briefing removed from history.');
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Failed to delete briefing.');
+    }
+  };
+
+  const handleUpdateBriefingSettings = async (updates: Partial<BriefingSettings>) => {
+    try {
+      if (window.recallDesk?.updateBriefingSettings) {
+        const updated = await window.recallDesk.updateBriefingSettings(updates);
+        setBriefingSettings(updated);
+        setNotice('Briefing preferences saved.');
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Failed to update briefing settings.');
+    }
+  };
+
+  const handleCompleteTaskFromBriefing = async (taskId: string) => {
+    try {
+      if (window.recallDesk?.completeMemory) {
+        await window.recallDesk.completeMemory(taskId);
+        setNotice('Task marked as completed.');
+        await refreshMemory();
+        await loadBriefingData();
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Failed to complete task.');
+    }
+  };
+
+  const handleSaveDailyIntent = (text: string) => {
+    setDailyIntent(text);
+    if (activeBriefing?.id) {
+      localStorage.setItem(`daily-intent-${activeBriefing.id}`, text);
+    }
+  };
+
+  useEffect(() => {
+    if (activeBriefing?.id) {
+      const saved = localStorage.getItem(`daily-intent-${activeBriefing.id}`) || '';
+      setDailyIntent(saved);
+    }
+  }, [activeBriefing?.id]);
+
+  const stopAudioBriefing = useCallback(() => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsPlayingAudio(false);
+    setAudioProgressText('');
+  }, []);
+
+  const playAudioBriefing = useCallback(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      setError('Audio speech readout is not supported on this device.');
+      return;
+    }
+    if (!activeBriefing) return;
+
+    window.speechSynthesis.cancel();
+
+    const scriptParts: string[] = [];
+    scriptParts.push(`Here is your daily memory briefing for ${activeBriefing.scopeName}.`);
+    scriptParts.push(activeBriefing.summary);
+
+    if (activeBriefing.focusItems.length > 0) {
+      scriptParts.push(`Top recommended priorities for today:`);
+      activeBriefing.focusItems.forEach((f, idx) => {
+        scriptParts.push(`Priority ${idx + 1}: ${f.title}. ${f.rationale}.`);
+      });
+    }
+
+    const urgentDeadlines = activeBriefing.openTasks.filter(t => Boolean(t.dueDate));
+    if (urgentDeadlines.length > 0) {
+      scriptParts.push(`Recorded deadlines:`);
+      urgentDeadlines.slice(0, 3).forEach(t => {
+        scriptParts.push(`${t.title}, scheduled for ${t.dueDate}.`);
+      });
+    }
+
+    if (activeBriefing.keyDecisions.length > 0) {
+      scriptParts.push(`Key active decision: ${activeBriefing.keyDecisions[0].title}.`);
+    }
+
+    const fullScript = scriptParts.join(' ');
+    const utterance = new SpeechSynthesisUtterance(fullScript);
+    utterance.rate = audioPlaybackRate;
+    utterance.pitch = 1.0;
+
+    utterance.onstart = () => {
+      setIsPlayingAudio(true);
+      setAudioProgressText('Voice briefing playing…');
+    };
+
+    utterance.onend = () => {
+      setIsPlayingAudio(false);
+      setAudioProgressText('');
+    };
+
+    utterance.onerror = (e) => {
+      console.warn('Speech synthesis error:', e);
+      setIsPlayingAudio(false);
+      setAudioProgressText('');
+    };
+
+    window.speechSynthesis.speak(utterance);
+  }, [activeBriefing, audioPlaybackRate]);
+
+  const startFocusSession = useCallback((taskTitle: string, sourcePath?: string) => {
+    setActiveFocusSession({
+      taskTitle,
+      sourcePath,
+      totalSeconds: 1500, // 25 min Pomodoro
+      secondsLeft: 1500,
+      isRunning: true
+    });
+    setNotice(`Focus session started for: "${taskTitle}". 25-minute timer running.`);
+  }, []);
+
+  const toggleFocusSession = useCallback(() => {
+    setActiveFocusSession(prev => prev ? { ...prev, isRunning: !prev.isRunning } : null);
+  }, []);
+
+  const resetFocusSession = useCallback(() => {
+    setActiveFocusSession(prev => prev ? { ...prev, secondsLeft: prev.totalSeconds, isRunning: false } : null);
+  }, []);
+
+  const closeFocusSession = useCallback(() => {
+    setActiveFocusSession(null);
+  }, []);
+
+  useEffect(() => {
+    if (!activeFocusSession || !activeFocusSession.isRunning) return;
+    const interval = setInterval(() => {
+      setActiveFocusSession(prev => {
+        if (!prev || !prev.isRunning) return prev;
+        if (prev.secondsLeft <= 1) {
+          setNotice(`Focus session complete for "${prev.taskTitle}"! Great work.`);
+          return { ...prev, secondsLeft: 0, isRunning: false };
+        }
+        return { ...prev, secondsLeft: prev.secondsLeft - 1 };
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [activeFocusSession?.isRunning]);
+
+  const handleCopyStandup = useCallback(() => {
+    if (!activeBriefing) return;
+    const lines: string[] = [];
+    lines.push(`📋 *Daily Standup Update — ${activeBriefing.date}* (${activeBriefing.scopeName})`);
+    lines.push(`\n*Summary:* ${activeBriefing.summary}`);
+
+    if (activeBriefing.focusItems.length > 0) {
+      lines.push(`\n🎯 *Today's Focus Priorities:*`);
+      activeBriefing.focusItems.forEach(f => {
+        lines.push(`• [${f.priority.toUpperCase()}] ${f.title} — ${f.rationale}`);
+      });
+    }
+
+    const deadlines = activeBriefing.openTasks.filter(t => Boolean(t.dueDate));
+    if (deadlines.length > 0) {
+      lines.push(`\n⏳ *Imminent Deadlines:*`);
+      deadlines.forEach(t => {
+        lines.push(`• ${t.title} (Due: ${t.dueDate})`);
+      });
+    }
+
+    if (activeBriefing.completedRecently.length > 0) {
+      lines.push(`\n✅ *Recently Completed:*`);
+      activeBriefing.completedRecently.forEach(c => {
+        lines.push(`• ${c.title}`);
+      });
+    }
+
+    if (activeBriefing.keyDecisions.length > 0) {
+      lines.push(`\n💡 *Active Architectural Decisions:*`);
+      activeBriefing.keyDecisions.forEach(d => {
+        lines.push(`• ${d.title}`);
+      });
+    }
+
+    const payload = lines.join('\n');
+    navigator.clipboard.writeText(payload);
+    setNotice('Standup update copied to clipboard in Markdown format!');
+  }, [activeBriefing]);
+
+  const readinessMetrics = useMemo(() => {
+    if (!activeBriefing) {
+      return {
+        score: 0,
+        label: 'No Data',
+        overdueCount: 0,
+        dueTodayCount: 0,
+        completedCount: 0,
+        activeTasksCount: 0
+      };
+    }
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const overdueCount = activeBriefing.openTasks.filter(t => t.dueDate && t.dueDate < todayStr).length;
+    const dueTodayCount = activeBriefing.openTasks.filter(t => t.dueDate && t.dueDate === todayStr).length;
+    const completedCount = activeBriefing.completedRecently.length;
+    const activeTasksCount = activeBriefing.openTasks.length;
+
+    let base = 65;
+    if (completedCount > 0) base += Math.min(25, completedCount * 8);
+    if (overdueCount > 0) base -= overdueCount * 12;
+    if (dueTodayCount > 0) base -= dueTodayCount * 5;
+    if (activeTasksCount > 0) base += 5;
+    if (activeBriefing.recentActivity.length > 0) base += 5;
+
+    const score = Math.max(15, Math.min(100, Math.round(base)));
+    const label = score >= 80 ? 'Peak Velocity' : score >= 60 ? 'Steady Progress' : 'Action Required';
+
+    return {
+      score,
+      label,
+      overdueCount,
+      dueTodayCount,
+      completedCount,
+      activeTasksCount
+    };
+  }, [activeBriefing]);
+
   useEffect(() => {
     if (!window.recallDesk) {
       setError("Desktop API (preload) was not detected. Please verify Electron preload initialization.");
@@ -190,6 +558,10 @@ function App() {
     refreshInfo();
     refreshModels();
     refreshMemory();
+    refreshClipboardSettings();
+    refreshClipboardItems();
+    loadBriefingData();
+    loadActionPlans();
 
     const offProgress = window.recallDesk.onProgress?.(p => {
       setProgress(p);
@@ -232,6 +604,25 @@ function App() {
         setRunningIntel(false);
       }
     });
+    const offClipboardCaptured = window.recallDesk.onClipboardItemCaptured?.(({ item }) => {
+      setClipboardItems(prev => {
+        const idx = prev.findIndex(i => i.id === item.id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = item;
+          return next;
+        }
+        return [item, ...prev];
+      });
+    });
+    const offFocusClipboard = window.recallDesk.onFocusClipboard?.(() => {
+      setView('clipboard');
+      setTimeout(() => clipboardInputRef.current?.focus(), 50);
+    });
+    const offBriefing = window.recallDesk.onNavigateBriefing?.(() => {
+      setView('briefing');
+      loadBriefingData();
+    });
 
     return () => {
       offProgress?.();
@@ -240,8 +631,11 @@ function App() {
       offPull?.();
       offExtract?.();
       offIntel?.();
+      offClipboardCaptured?.();
+      offFocusClipboard?.();
+      offBriefing?.();
     };
-  }, [refreshInfo, refreshModels, refreshMemory]);
+  }, [refreshInfo, refreshModels, refreshMemory, refreshClipboardSettings, refreshClipboardItems, loadBriefingData]);
 
   useEffect(() => {
     const handle = window.setTimeout(async () => {
@@ -329,6 +723,255 @@ function App() {
     }
   };
 
+  // Action Plans & Targeted Memory Scope Handlers
+  const loadActionPlans = useCallback(async () => {
+    try {
+      if (window.recallDesk?.listActionPlans) {
+        const plans = await window.recallDesk.listActionPlans();
+        setActionPlans(plans);
+        if (plans.length > 0 && !activePlanId) {
+          setActivePlanId(plans[0].id);
+          setActivePlanNotes(plans[0].rawNotes);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load action plans:', e);
+    }
+  }, [activePlanId]);
+
+  const handleChooseMemoryFiles = async () => {
+    try {
+      if (window.recallDesk?.chooseMemoryFiles) {
+        const files = await window.recallDesk.chooseMemoryFiles();
+        if (files && files.length > 0) {
+          setMemoryScopePaths(prev => Array.from(new Set([...prev, ...files])));
+          setNotice(`Target scope updated with ${files.length} selected file(s).`);
+        }
+      }
+    } catch (e: any) {
+      setError(`Failed to select files: ${e.message || String(e)}`);
+    }
+  };
+
+  const handleChooseMemoryFolders = async () => {
+    try {
+      if (window.recallDesk?.chooseMemoryFolders) {
+        const folders = await window.recallDesk.chooseMemoryFolders();
+        if (folders && folders.length > 0) {
+          setMemoryScopePaths(prev => Array.from(new Set([...prev, ...folders])));
+          setNotice(`Target scope updated with ${folders.length} selected folder(s).`);
+        }
+      }
+    } catch (e: any) {
+      setError(`Failed to select folders: ${e.message || String(e)}`);
+    }
+  };
+
+  const handleRemoveMemoryScopePath = (p: string) => {
+    setMemoryScopePaths(prev => prev.filter(x => x !== p));
+  };
+
+  const handleClearMemoryScope = () => {
+    setMemoryScopePaths([]);
+    setNotice('Scope reset to all indexed library files.');
+  };
+
+  const handleGenerateActionPlan = async (filePath?: string) => {
+    let target = filePath;
+    if (!target) {
+      if (memoryScopePaths.length > 0) {
+        target = memoryScopePaths[0];
+      } else {
+        const files = await window.recallDesk.chooseMemoryFiles();
+        if (!files || !files.length) return;
+        target = files[0];
+      }
+    }
+    if (!target) return;
+
+    try {
+      setGeneratingPlan(true);
+      setError('');
+      setNotice(`Analyzing "${target.split(/[/\\]/).pop()}" and generating action plan with timeline & tick marks...`);
+      const plan = await window.recallDesk.generateActionPlan(target);
+      await loadActionPlans();
+      await refreshMemory();
+      setActivePlanId(plan.id);
+      setActivePlanNotes(plan.rawNotes);
+      setMemorySubView('plan');
+      setNotice(`Generated Action Plan: "${plan.title}" with ${plan.phases.flatMap(p => p.tasks).length} actionable steps.`);
+    } catch (e: any) {
+      setError(`Plan generation failed: ${e.message || String(e)}`);
+    } finally {
+      setGeneratingPlan(false);
+    }
+  };
+
+  const handleTogglePlanStep = async (planId: string, taskId: string, completed: boolean) => {
+    try {
+      const updated = await window.recallDesk.toggleActionPlanStep({ planId, taskId, completed });
+      if (updated) {
+        setActionPlans(prev => prev.map(p => p.id === planId ? updated : p));
+        await refreshMemory();
+      }
+    } catch (e: any) {
+      setError(`Failed to update step: ${e.message || String(e)}`);
+    }
+  };
+
+  const handleSavePlanNotes = async (planId: string) => {
+    try {
+      const updated = await window.recallDesk.saveActionPlanNotes({ planId, notes: activePlanNotes });
+      if (updated) {
+        setActionPlans(prev => prev.map(p => p.id === planId ? updated : p));
+        setNotice('Action plan notes saved.');
+      }
+    } catch (e: any) {
+      setError(`Failed to save notes: ${e.message || String(e)}`);
+    }
+  };
+
+  const handleDeletePlan = async (planId: string) => {
+    if (!confirm('Delete this action plan from memory? (Tasks already tracked in memory remain).')) return;
+    try {
+      await window.recallDesk.deleteActionPlan(planId);
+      const remaining = actionPlans.filter(p => p.id !== planId);
+      setActionPlans(remaining);
+      if (activePlanId === planId) {
+        setActivePlanId(remaining[0]?.id || null);
+        setActivePlanNotes(remaining[0]?.rawNotes || '');
+      }
+      setNotice('Action plan deleted.');
+    } catch (e: any) {
+      setError(`Failed to delete plan: ${e.message || String(e)}`);
+    }
+  };
+
+  const calendarMonthYearStr = useMemo(() => {
+    return calendarDate.toLocaleDateString([], { month: 'long', year: 'numeric' });
+  }, [calendarDate]);
+
+  const calendarDays = useMemo(() => {
+    const year = calendarDate.getFullYear();
+    const month = calendarDate.getMonth();
+    const firstDayIndex = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const daysInPrevMonth = new Date(year, month, 0).getDate();
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const cells: Array<{
+      dayNum: number;
+      dateStr: string;
+      isCurrentMonth: boolean;
+      isToday: boolean;
+      tasks: MemoryItem[];
+    }> = [];
+
+    // Prev month days
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      const d = daysInPrevMonth - i;
+      const prevDate = new Date(year, month - 1, d);
+      const dateStr = prevDate.toISOString().slice(0, 10);
+      cells.push({
+        dayNum: d,
+        dateStr,
+        isCurrentMonth: false,
+        isToday: dateStr === todayStr,
+        tasks: memoryItems.filter(m => m.type === 'task' && m.dueDate && m.dueDate.includes(dateStr))
+      });
+    }
+
+    // Current month days
+    for (let d = 1; d <= daysInMonth; d++) {
+      const curDate = new Date(year, month, d);
+      const dateStr = curDate.toISOString().slice(0, 10);
+      cells.push({
+        dayNum: d,
+        dateStr,
+        isCurrentMonth: true,
+        isToday: dateStr === todayStr,
+        tasks: memoryItems.filter(m => m.type === 'task' && m.dueDate && m.dueDate.includes(dateStr))
+      });
+    }
+
+    // Next month padding to complete weeks
+    const remaining = (7 - (cells.length % 7)) % 7;
+    for (let d = 1; d <= remaining; d++) {
+      const nextDate = new Date(year, month + 1, d);
+      const dateStr = nextDate.toISOString().slice(0, 10);
+      cells.push({
+        dayNum: d,
+        dateStr,
+        isCurrentMonth: false,
+        isToday: dateStr === todayStr,
+        tasks: memoryItems.filter(m => m.type === 'task' && m.dueDate && m.dueDate.includes(dateStr))
+      });
+    }
+
+    return cells;
+  }, [calendarDate, memoryItems]);
+
+  const selectedDateTasks = useMemo(() => {
+    return memoryItems.filter(m => m.type === 'task' && m.dueDate && m.dueDate.includes(selectedCalendarDate));
+  }, [memoryItems, selectedCalendarDate]);
+
+  const handleQuickAddCalendarTask = async () => {
+    const title = calendarNewTaskInput.trim();
+    if (!title) return;
+    try {
+      await window.recallDesk.createMemory({
+        type: 'task',
+        title,
+        dueDate: selectedCalendarDate,
+        status: 'open'
+      });
+      setCalendarNewTaskInput('');
+      await refreshMemory();
+      setNotice(`Scheduled task for ${selectedCalendarDate}`);
+    } catch (e: any) {
+      setError(`Failed to add task: ${e.message || String(e)}`);
+    }
+  };
+
+  const timelineData = useMemo(() => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const weekAhead = new Date();
+    weekAhead.setDate(weekAhead.getDate() + 7);
+    const weekAheadStr = weekAhead.toISOString().slice(0, 10);
+
+    const monthAhead = new Date();
+    monthAhead.setDate(monthAhead.getDate() + 30);
+    const monthAheadStr = monthAhead.toISOString().slice(0, 10);
+
+    const allTasks = memoryItems.filter(m => m.type === 'task');
+    const totalCount = allTasks.length;
+    const completedTasks = allTasks.filter(m => m.status === 'completed');
+    const percentDone = totalCount > 0 ? Math.round((completedTasks.length / totalCount) * 100) : 0;
+
+    const overdue = allTasks.filter(m => m.status === 'open' && m.dueDate && m.dueDate < todayStr);
+    const today = allTasks.filter(m => m.status === 'open' && m.dueDate && m.dueDate === todayStr);
+    const thisWeek = allTasks.filter(m => m.status === 'open' && m.dueDate && m.dueDate > todayStr && m.dueDate <= weekAheadStr);
+    const upcoming = allTasks.filter(m => m.status === 'open' && m.dueDate && m.dueDate > weekAheadStr && m.dueDate <= monthAheadStr);
+    const backlog = allTasks.filter(m => m.status === 'open' && !m.dueDate);
+
+    return {
+      totalCount,
+      completedCount: completedTasks.length,
+      percentDone,
+      overdue,
+      today,
+      thisWeek,
+      upcoming,
+      backlog,
+      completed: completedTasks
+    };
+  }, [memoryItems]);
+
+  const activePlan = useMemo(() => {
+    if (!actionPlans.length) return null;
+    return actionPlans.find(p => p.id === activePlanId) || actionPlans[0];
+  }, [actionPlans, activePlanId]);
+
   // Memory Action Handlers
   const handleExtractMemory = async () => {
     if (extractingMemory || busy) return;
@@ -341,13 +984,17 @@ function App() {
       totalChunks: info?.indexedChunks || 0,
       extractedCount: 0,
       newCount: 0,
-      message: 'Scanning passages for candidate tasks & decisions...',
+      message: memoryScopePaths.length > 0
+        ? `Scanning selected ${memoryScopePaths.length} target(s) for tasks & decisions...`
+        : 'Scanning passages for candidate tasks & decisions...',
       done: false
     });
     try {
-      const res = await window.recallDesk.extractMemory();
+      const res = await window.recallDesk.extractMemory({
+        targetPaths: memoryScopePaths.length > 0 ? memoryScopePaths : undefined
+      });
       await refreshMemory();
-      setNotice(`Scan complete: found ${res.newCount} new candidate tasks and decisions.`);
+      setNotice(`Extraction complete: found ${res.newCount} new candidate tasks and decisions.`);
     } catch (e: any) {
       if (e.message && e.message.includes('cancelled')) {
         setNotice('Extraction scan cancelled.');
@@ -730,16 +1377,155 @@ function App() {
     return selectedSources.filter(s => s.status === 'unsupported' || s.warning);
   }, [selectedSources]);
 
+  // Clipboard Action Handlers
+  const handleToggleClipboardEnabled = async () => {
+    try {
+      const nextEnabled = !clipboardSettings?.enabled;
+      const updated = await window.recallDesk.updateClipboardSettings({ enabled: nextEnabled });
+      setClipboardSettings(updated);
+      setNotice(nextEnabled ? 'Clipboard Memory enabled. Automatically capturing copied snippets.' : 'Clipboard Memory disabled.');
+      if (nextEnabled) await refreshClipboardItems();
+    } catch (e: any) {
+      setError(`Failed to update clipboard settings: ${e.message || String(e)}`);
+    }
+  };
+
+  const handleToggleClipboardPaused = async () => {
+    try {
+      const nextPaused = !clipboardSettings?.paused;
+      const updated = await window.recallDesk.updateClipboardSettings({ paused: nextPaused });
+      setClipboardSettings(updated);
+      setNotice(nextPaused ? 'Clipboard monitoring paused.' : 'Clipboard monitoring resumed.');
+    } catch (e: any) {
+      setError(`Failed to pause/resume clipboard: ${e.message || String(e)}`);
+    }
+  };
+
+  const handleCopyClipboardItem = async (item: ClipboardItem) => {
+    try {
+      await window.recallDesk.copyClipboardItem(item.id);
+      setCopiedItemId(item.id);
+      setNotice('Copied snippet to clipboard!');
+      setTimeout(() => {
+        setCopiedItemId(prev => prev === item.id ? null : prev);
+      }, 2000);
+    } catch (e: any) {
+      setError(`Failed to copy: ${e.message || String(e)}`);
+    }
+  };
+
+  const handleTogglePinClipboardItem = async (item: ClipboardItem) => {
+    try {
+      const updated = await window.recallDesk.pinClipboardItem(item.id, !item.isPinned);
+      setClipboardItems(prev => prev.map(i => i.id === item.id ? updated : i));
+      setNotice(updated.isPinned ? 'Snippet pinned to top.' : 'Snippet unpinned.');
+    } catch (e: any) {
+      setError(`Failed to pin: ${e.message || String(e)}`);
+    }
+  };
+
+  const handleDeleteClipboardItem = async (id: string) => {
+    try {
+      await window.recallDesk.deleteClipboardItem(id);
+      setClipboardItems(prev => prev.filter(i => i.id !== id));
+      setNotice('Clipboard entry deleted.');
+    } catch (e: any) {
+      setError(`Failed to delete: ${e.message || String(e)}`);
+    }
+  };
+
+  const handleStartLabelItem = (item: ClipboardItem) => {
+    setEditingLabelItem(item);
+    setLabelInput(item.label || '');
+  };
+
+  const handleSaveLabel = async () => {
+    if (!editingLabelItem) return;
+    try {
+      const updated = await window.recallDesk.setClipboardLabel(editingLabelItem.id, labelInput);
+      setClipboardItems(prev => prev.map(i => i.id === editingLabelItem.id ? updated : i));
+      setEditingLabelItem(null);
+      setLabelInput('');
+      setNotice('Label saved.');
+    } catch (e: any) {
+      setError(`Failed to set label: ${e.message || String(e)}`);
+    }
+  };
+
+  const handleClearClipboardHistory = async () => {
+    try {
+      const cleared = await window.recallDesk.clearClipboardHistory(preservePinnedOnClear);
+      await refreshClipboardItems();
+      setConfirmClearModal(false);
+      setNotice(`Cleared ${cleared} clipboard entries.`);
+    } catch (e: any) {
+      setError(`Failed to clear history: ${e.message || String(e)}`);
+    }
+  };
+
+  const toggleExpandSnippet = (id: string) => {
+    setExpandedSnippetIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const filteredClipboardItems = useMemo(() => {
+    let list = clipboardItems;
+    if (clipboardFilter === 'pinned') {
+      list = list.filter(i => i.isPinned);
+    } else if (clipboardFilter !== 'all') {
+      list = list.filter(i => i.contentType === clipboardFilter);
+    }
+
+    if (clipboardQuery.trim()) {
+      const q = clipboardQuery.toLowerCase().trim();
+      const words = q.split(/\s+/).filter(w => w.length > 0);
+      list = list.filter(i => {
+        const text = i.text.toLowerCase();
+        const label = (i.label || '').toLowerCase();
+        return words.every(w => text.includes(w) || label.includes(w));
+      });
+    }
+
+    return list;
+  }, [clipboardItems, clipboardFilter, clipboardQuery]);
+
+  const clipboardCounts = useMemo(() => {
+    return {
+      all: clipboardItems.length,
+      pinned: clipboardItems.filter(i => i.isPinned).length,
+      code: clipboardItems.filter(i => i.contentType === 'code').length,
+      command: clipboardItems.filter(i => i.contentType === 'command').length,
+      url: clipboardItems.filter(i => i.contentType === 'url').length,
+      text: clipboardItems.filter(i => i.contentType === 'text').length,
+      json: clipboardItems.filter(i => i.contentType === 'json').length
+    };
+  }, [clipboardItems]);
+
   return <div className="app-shell">
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark"><BrainCircuit size={21}/></div><div><div className="brand-name">OpenSearch</div><div className="brand-sub">LOCAL MEMORY ENGINE</div></div></div>
+      <div className="brand"><div className="brand-mark"><BrainCircuit size={21}/></div><div><div className="brand-name">RecallDesk</div><div className="brand-sub">LOCAL MEMORY ENGINE</div></div></div>
       <button className={`nav-item ${view === 'search' ? 'active' : ''}`} onClick={() => setView('search')}><Search size={17}/> Search memory <span className="nav-shortcut">⌘ K</span></button>
+      <button className={`nav-item ${view === 'clipboard' ? 'active' : ''}`} onClick={() => setView('clipboard')}>
+        <ClipboardList size={17}/> Clipboard Memory
+        {clipboardSettings?.enabled && !clipboardSettings?.paused && (
+          <span className="clipboard-nav-dot" title="Monitoring active" />
+        )}
+      </button>
       <button className={`nav-item ${view === 'intelligence' ? 'active' : ''}`} onClick={() => setView('intelligence')}>
         <Sparkles size={17}/> Project Intelligence
       </button>
       <button className={`nav-item ${view === 'memory' ? 'active' : ''}`} onClick={() => setView('memory')}>
         <ListTodo size={17}/> Tasks & Decisions
         {suggestedCount > 0 && <span className="memory-nav-badge">{suggestedCount}</span>}
+      </button>
+
+      <div className="nav-section-label">WORKSPACE DOCK</div>
+      <button className={`nav-item ${view === 'briefing' ? 'active' : ''}`} onClick={() => { setView('briefing'); loadBriefingData(); }}>
+        <Calendar size={17}/> Daily Briefing
       </button>
       <button className={`nav-item ${view === 'library' ? 'active' : ''}`} onClick={() => setView('library')}><BookOpen size={17}/> Indexed library</button>
       <button className={`nav-item ${view === 'settings' ? 'active' : ''}`} onClick={() => setView('settings')}><Settings2 size={17}/> Settings</button>
@@ -755,7 +1541,7 @@ function App() {
           <span>Workspace</span>
           <span className="slash">/</span>
           <strong>
-            {view === 'search' ? 'Search memory' : view === 'intelligence' ? 'Project Intelligence' : view === 'memory' ? 'Decision & Task Memory' : view === 'library' ? 'Indexed library' : 'Settings'}
+            {view === 'briefing' ? 'Daily Memory Briefing' : view === 'search' ? 'Search memory' : view === 'clipboard' ? 'Clipboard Memory' : view === 'intelligence' ? 'Project Intelligence' : view === 'memory' ? 'Decision & Task Memory' : view === 'library' ? 'Indexed library' : 'Settings'}
           </strong>
         </div>
         <div className="top-actions">
@@ -764,6 +1550,758 @@ function App() {
         </div>
       </header>
       <div className="content">
+        {/* VIEW 0: DAILY MEMORY BRIEFING VIEW */}
+        {view === 'briefing' && (
+          <div className="page-panel">
+            <div className="briefing-topbar">
+              <div>
+                <div className="eyebrow"><Sparkles size={13}/> DAILY INTELLIGENCE · LOCAL SYNTHESIS</div>
+                <h1 style={{ font: '700 28px Manrope, sans-serif', margin: '8px 0 4px', color: '#f1f3f8' }}>Daily Memory Briefing</h1>
+                <p style={{ color: '#8b94a5', fontSize: '13px', margin: 0 }}>
+                  A grounded daily synthesis of verified project activity, open tasks, explicit deadlines, and saved decisions.
+                </p>
+              </div>
+              <div className="briefing-actions">
+                <div className="briefing-scope-select">
+                  <Folder size={14} style={{ color: '#9ce8bd' }} />
+                  <select
+                    value={briefingScope}
+                    onChange={e => {
+                      const newScope = e.target.value;
+                      setBriefingScope(newScope);
+                      loadBriefingData(newScope);
+                    }}
+                  >
+                    <option value="all">All Projects (Global Scope)</option>
+                    {info?.roots?.map(r => (
+                      <option key={r} value={r}>
+                        Project: {r.split(/[/\\]/).filter(Boolean).pop()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {activeBriefing && (
+                  <>
+                    <button
+                      className="secondary-btn"
+                      onClick={isPlayingAudio ? stopAudioBriefing : playAudioBriefing}
+                      title="Audio voice readout of daily briefing"
+                      style={isPlayingAudio ? { borderColor: '#7fdfa5', color: '#7fdfa5' } : {}}
+                    >
+                      {isPlayingAudio ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                      {isPlayingAudio ? 'Stop Voice' : 'Listen'}
+                    </button>
+
+                    <button
+                      className="secondary-btn"
+                      onClick={handleCopyStandup}
+                      title="Copy formatted standup summary to clipboard"
+                    >
+                      <Share2 size={14} /> Copy Standup
+                    </button>
+                  </>
+                )}
+
+                <button
+                  className="primary-btn"
+                  onClick={() => handleGenerateBriefing(Boolean(todayBriefing))}
+                  disabled={generatingBriefing}
+                >
+                  <Sparkles size={14} className={generatingBriefing ? 'spin' : ''} />
+                  {generatingBriefing
+                    ? 'Synthesizing...'
+                    : todayBriefing
+                    ? 'Regenerate Briefing'
+                    : "Generate Today's Briefing"}
+                </button>
+
+                <button
+                  className="secondary-btn"
+                  onClick={() => setShowHistoryModal(true)}
+                  title="View saved past briefings"
+                >
+                  <History size={14} /> History ({briefingHistory.length})
+                </button>
+              </div>
+            </div>
+
+            {/* Error or Notice */}
+            {briefingError && (
+              <div className="alert error">
+                <AlertCircle size={16} />
+                <span>{briefingError}</span>
+                <button onClick={() => setBriefingError('')}>×</button>
+              </div>
+            )}
+
+            {/* Live Audio Briefing Bar */}
+            {isPlayingAudio && (
+              <div className="briefing-audio-bar">
+                <div className="briefing-audio-left">
+                  <div className="audio-wave">
+                    <span className="wave-bar" />
+                    <span className="wave-bar" />
+                    <span className="wave-bar" />
+                    <span className="wave-bar" />
+                    <span className="wave-bar" />
+                  </div>
+                  <span className="audio-live-label">{audioProgressText || 'Voice briefing playing…'}</span>
+                </div>
+                <div className="briefing-audio-controls">
+                  <span style={{ fontSize: 11, color: '#8b98ad', marginRight: 4 }}>Speed:</span>
+                  {[1.0, 1.25, 1.5].map(rate => (
+                    <button
+                      key={rate}
+                      className={`audio-rate-btn ${audioPlaybackRate === rate ? 'active' : ''}`}
+                      onClick={() => {
+                        setAudioPlaybackRate(rate);
+                        stopAudioBriefing();
+                        setTimeout(() => playAudioBriefing(), 100);
+                      }}
+                    >
+                      {rate}x
+                    </button>
+                  ))}
+                  <button className="secondary-btn" style={{ padding: '3px 8px', fontSize: 11 }} onClick={stopAudioBriefing}>
+                    <VolumeX size={12} /> Stop
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Active Deep Work Pomodoro Focus Session */}
+            {activeFocusSession && (
+              <div className="focus-session-card">
+                <div className="focus-session-left">
+                  <div className="focus-session-clock">
+                    {Math.floor(activeFocusSession.secondsLeft / 60).toString().padStart(2, '0')}:{(activeFocusSession.secondsLeft % 60).toString().padStart(2, '0')}
+                  </div>
+                  <div className="focus-session-details">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                      <span className="briefing-badge ai" style={{ fontSize: 10, padding: '2px 6px' }}>
+                        <Timer size={10} /> DEEP WORK FOCUS
+                      </span>
+                      {activeFocusSession.isRunning ? (
+                        <span style={{ fontSize: 11, color: '#9ce8bd' }}>● Timer Active</span>
+                      ) : (
+                        <span style={{ fontSize: 11, color: '#f6c466' }}>❚❚ Paused</span>
+                      )}
+                    </div>
+                    <h4>{activeFocusSession.taskTitle}</h4>
+                    {activeFocusSession.sourcePath && (
+                      <p>File: {activeFocusSession.sourcePath.split(/[/\\]/).pop()}</p>
+                    )}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button className="secondary-btn" onClick={toggleFocusSession} title={activeFocusSession.isRunning ? 'Pause timer' : 'Resume timer'}>
+                    {activeFocusSession.isRunning ? <Pause size={14} /> : <Play size={14} />}
+                    {activeFocusSession.isRunning ? 'Pause' : 'Resume'}
+                  </button>
+                  <button className="secondary-btn" onClick={resetFocusSession} title="Reset 25 min">
+                    <RotateCcw size={14} />
+                  </button>
+                  <button className="primary-btn" onClick={() => { setNotice(`Completed focus session for: ${activeFocusSession.taskTitle}`); closeFocusSession(); }}>
+                    <Check size={14} /> Complete Task
+                  </button>
+                  <button className="icon-btn" onClick={closeFocusSession} title="Dismiss focus timer">
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Historical banner if viewing past briefing */}
+            {activeBriefing && todayBriefing && activeBriefing.id !== todayBriefing.id && (
+              <div className="alert notice" style={{ background: '#1c2233', borderColor: '#344365', color: '#c1d4ff' }}>
+                <Clock size={15} />
+                <span>
+                  Viewing historical briefing from <strong>{activeBriefing.date}</strong> ({activeBriefing.scopeName}).
+                </span>
+                <button
+                  className="secondary-btn"
+                  style={{ marginLeft: 'auto', padding: '3px 9px', fontSize: '10px' }}
+                  onClick={() => setActiveBriefing(todayBriefing)}
+                >
+                  Return to Today's Briefing
+                </button>
+              </div>
+            )}
+
+            {/* Empty State when no briefing yet generated */}
+            {!activeBriefing && !generatingBriefing && (
+              <div className="empty-results" style={{ padding: '50px 24px' }}>
+                <div className="empty-icon" style={{ width: 56, height: 56, borderRadius: 16 }}>
+                  <Calendar size={28} style={{ color: '#9ce8bd' }} />
+                </div>
+                <h3 style={{ fontSize: 17, margin: '18px 0 6px' }}>No Briefing Generated for Today</h3>
+                <p style={{ maxWidth: 460 }}>
+                  RecallDesk can inspect your verified local tasks, scheduled deadlines, decisions, and recent file changes to build today's memory briefing.
+                </p>
+                <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+                  <button
+                    className="primary-btn"
+                    onClick={() => handleGenerateBriefing(false)}
+                    disabled={generatingBriefing}
+                  >
+                    <Sparkles size={14} /> Generate Briefing Now
+                  </button>
+                </div>
+                <div className="bottom-note" style={{ marginTop: 28 }}>
+                  <ShieldCheck size={14} /> 100% local synthesis. Zero telemetry or external cloud transfers.
+                </div>
+              </div>
+            )}
+
+            {/* Generating Skeleton / Progress Card */}
+            {generatingBriefing && (
+              <div className="progress-card" style={{ marginBottom: 24, border: '1px solid #2e4d3a' }}>
+                <div className="progress-top">
+                  <div className="spinner-label">
+                    <LoaderCircle className="spin" size={17} />
+                    <strong>Synthesizing Daily Memory Briefing for {briefingScope === 'all' ? 'All Projects' : briefingScope.split(/[/\\]/).filter(Boolean).pop()}…</strong>
+                  </div>
+                  <span>Local Processing</span>
+                </div>
+                <div className="progress-track">
+                  <div className="progress-fill" style={{ width: '85%' }} />
+                </div>
+                <div className="progress-note">
+                  Gathering verified tasks, ranking explicit deadlines, and extracting grounded focus items…
+                </div>
+              </div>
+            )}
+
+            {/* Active Briefing Display */}
+            {activeBriefing && (
+              <>
+                {/* Meta Bar */}
+                <div className="briefing-meta-bar">
+                  <div className="briefing-meta-left">
+                    <span className="briefing-meta-date">
+                      <Calendar size={14} style={{ color: '#9ce8bd' }} />
+                      {activeBriefing.date}
+                    </span>
+                    <span className="dot-sep">·</span>
+                    <span>Scope: <strong style={{ color: '#c5d0e2' }}>{activeBriefing.scopeName}</strong></span>
+                    <span className="dot-sep">·</span>
+                    <span>
+                      Generated at {new Date(activeBriefing.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <div>
+                    {activeBriefing.generationType === 'ai' ? (
+                      <span className="briefing-badge ai">
+                        <Sparkles size={12} /> Local AI ({activeBriefing.modelUsed || 'Ollama'})
+                      </span>
+                    ) : (
+                      <span className="briefing-badge deterministic">
+                        <ShieldCheck size={12} /> Deterministic Local Synthesis
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Readiness & Momentum 4-Card Dashboard */}
+                <div className="momentum-dashboard">
+                  <div className="momentum-card">
+                    <div className="momentum-icon score">
+                      <Flame size={20} />
+                    </div>
+                    <div className="momentum-info">
+                      <strong>{readinessMetrics.score}% Momentum</strong>
+                      <span>{readinessMetrics.label}</span>
+                    </div>
+                  </div>
+
+                  <div className="momentum-card">
+                    <div className="momentum-icon deadlines">
+                      <Calendar size={20} />
+                    </div>
+                    <div className="momentum-info">
+                      <strong>
+                        {readinessMetrics.overdueCount > 0
+                          ? `${readinessMetrics.overdueCount} Overdue`
+                          : readinessMetrics.dueTodayCount > 0
+                          ? `${readinessMetrics.dueTodayCount} Due Today`
+                          : 'Deadlines Clear'}
+                      </strong>
+                      <span>
+                        {readinessMetrics.overdueCount + readinessMetrics.dueTodayCount > 0
+                          ? 'Action required on deadlines'
+                          : 'No urgent deadlines today'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="momentum-card">
+                    <div className="momentum-icon focus">
+                      <Sparkles size={20} />
+                    </div>
+                    <div className="momentum-info">
+                      <strong>{activeBriefing.focusItems.length} Focus Items</strong>
+                      <span>Recommended priorities</span>
+                    </div>
+                  </div>
+
+                  <div className="momentum-card">
+                    <div className="momentum-icon activity">
+                      <Activity size={20} />
+                    </div>
+                    <div className="momentum-info">
+                      <strong>{activeBriefing.recentActivity.length} Events</strong>
+                      <span>Verified local project activity</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Daily Intent Scratchpad Card */}
+                <div className="daily-intent-card">
+                  <div className="daily-intent-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Edit3 size={13} style={{ color: '#9ce8bd' }} />
+                      <span>Today's Core Intention & Milestone Target</span>
+                    </div>
+                    <span style={{ fontSize: 10, color: '#768396' }}>Autosaved locally</span>
+                  </div>
+                  <input
+                    type="text"
+                    className="daily-intent-input"
+                    value={dailyIntent}
+                    onChange={e => handleSaveDailyIntent(e.target.value)}
+                    placeholder="What is your primary milestone to ship or verify today? (e.g., Complete memory briefings, verify unit tests)"
+                  />
+                </div>
+
+                {/* Briefing Section Navigation Tabs */}
+                <div className="briefing-tabs-bar">
+                  <button
+                    className={`briefing-tab-btn ${briefingTab === 'overview' ? 'active' : ''}`}
+                    onClick={() => setBriefingTab('overview')}
+                  >
+                    Overview
+                  </button>
+                  <button
+                    className={`briefing-tab-btn ${briefingTab === 'focus' ? 'active' : ''}`}
+                    onClick={() => setBriefingTab('focus')}
+                  >
+                    🎯 Focus Priorities ({activeBriefing.focusItems.length})
+                  </button>
+                  <button
+                    className={`briefing-tab-btn ${briefingTab === 'deadlines' ? 'active' : ''}`}
+                    onClick={() => setBriefingTab('deadlines')}
+                  >
+                    ⏳ Deadlines & Tasks ({activeBriefing.openTasks.length})
+                  </button>
+                  <button
+                    className={`briefing-tab-btn ${briefingTab === 'decisions' ? 'active' : ''}`}
+                    onClick={() => setBriefingTab('decisions')}
+                  >
+                    📝 Decisions & Notes ({activeBriefing.keyDecisions.length})
+                  </button>
+                  <button
+                    className={`briefing-tab-btn ${briefingTab === 'activity' ? 'active' : ''}`}
+                    onClick={() => setBriefingTab('activity')}
+                  >
+                    📈 Activity Log ({activeBriefing.recentActivity.length})
+                  </button>
+                </div>
+
+                {/* Executive Summary Card (Shown in Overview, Focus, or Deadlines) */}
+                {(briefingTab === 'overview' || briefingTab === 'focus') && (
+                  <div className="briefing-summary-card">
+                    <div className="briefing-summary-header">
+                      <FileText size={14} /> Executive Daily Summary
+                    </div>
+                    <p className="briefing-summary-text">{activeBriefing.summary}</p>
+
+                    {activeBriefing.insufficientData && (
+                      <div className="briefing-insufficient-banner">
+                        <AlertCircle size={15} />
+                        <span>
+                          Notice: Insufficient local activity records found. Add folders to your library or record tasks & decisions to enrich daily synthesis.
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Suggested Focus Items (Shown in Overview or Focus tab) */}
+                {(briefingTab === 'overview' || briefingTab === 'focus') && (
+                  <div className="briefing-focus-section">
+                    <div className="briefing-section-heading">
+                      <h3>
+                        <Sparkles size={16} style={{ color: '#9ce8bd' }} />
+                        Suggested Focus Items
+                      </h3>
+                      <span>Prioritized from deadlines, open tasks & recent activity</span>
+                    </div>
+                    <div className="focus-grid">
+                      {activeBriefing.focusItems.map(f => (
+                        <div className={`focus-card priority-${f.priority}`} key={f.id}>
+                          <div className="focus-top">
+                            <span className="focus-priority-pill">{f.priority} priority</span>
+                          </div>
+                          <h4>{f.title}</h4>
+                          <p className="focus-rationale">{f.rationale}</p>
+                          <div className="focus-footer">
+                            <button
+                              className="focus-btn"
+                              onClick={() => startFocusSession(f.title, f.relatedSource)}
+                              title="Start 25-minute Pomodoro focus timer on this item"
+                              style={{ background: '#1c2e28', color: '#9ce8bd', borderColor: '#2e5a47' }}
+                            >
+                              <Timer size={12} /> Focus 25m
+                            </button>
+                            {f.relatedTaskId && (
+                              <button
+                                className="focus-btn"
+                                onClick={() => {
+                                  setView('memory');
+                                  setMemorySearch(f.title);
+                                }}
+                                title="Jump to this task in Tasks & Decisions"
+                              >
+                                <ListTodo size={12} /> View in Tasks
+                              </button>
+                            )}
+                            {f.relatedSource && (
+                              <button
+                                className="focus-btn"
+                                onClick={async () => {
+                                  try {
+                                    await window.recallDesk.openFile(f.relatedSource!);
+                                  } catch (e: any) {
+                                    setError(e?.message || 'Failed to open source file.');
+                                  }
+                                }}
+                                title={f.relatedSource}
+                              >
+                                <FileText size={12} /> Open Source
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Two-Column Structured Section */}
+                <div className="briefing-columns">
+                  {/* Left Column: Tasks, Deadlines, Decisions */}
+                  {(briefingTab === 'overview' || briefingTab === 'deadlines' || briefingTab === 'decisions') && (
+                    <div className="briefing-column">
+                      {/* Open Tasks Block */}
+                      {(briefingTab === 'overview' || briefingTab === 'deadlines') && (
+                        <div className="briefing-block">
+                          <div className="briefing-block-header">
+                            <h4>
+                              <CheckSquare size={16} style={{ color: '#9ce8bd' }} />
+                              Open Tasks & Scheduled Deadlines
+                            </h4>
+                            <span className="briefing-count">{activeBriefing.openTasks.length}</span>
+                          </div>
+                          <div className="briefing-task-list">
+                            {activeBriefing.openTasks.length === 0 ? (
+                              <div style={{ fontSize: 11, color: '#7a8597', padding: '10px 0' }}>
+                                No open tasks recorded in this scope.
+                              </div>
+                            ) : (
+                              activeBriefing.openTasks.map(task => {
+                                const todayStr = new Date().toISOString().slice(0, 10);
+                                const isOverdue = task.dueDate && task.dueDate < todayStr;
+                                const isDueToday = task.dueDate && task.dueDate === todayStr;
+
+                                return (
+                                  <div className="briefing-task-item" key={task.id}>
+                                    <button
+                                      className="briefing-task-check"
+                                      onClick={() => handleCompleteTaskFromBriefing(task.id)}
+                                      title="Mark completed"
+                                    >
+                                      <Check size={12} />
+                                    </button>
+                                    <div className="briefing-task-content">
+                                      <div className="briefing-task-title-row">
+                                        <span className="briefing-task-title">{task.title}</span>
+                                        {task.dueDate && (
+                                          <span className={`deadline-pill ${isOverdue ? 'overdue' : isDueToday ? 'today' : ''}`}>
+                                            <Calendar size={10} /> {isOverdue ? 'Overdue: ' : isDueToday ? 'Due Today: ' : 'Due '} {task.dueDate}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {task.details && (
+                                        <p className="briefing-task-details">{task.details}</p>
+                                      )}
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                                        <button
+                                          className="focus-btn"
+                                          style={{ padding: '2px 7px', fontSize: 10 }}
+                                          onClick={() => startFocusSession(task.title, task.sourcePath)}
+                                          title="Start 25-min focus timer on this task"
+                                        >
+                                          <Timer size={10} /> Focus
+                                        </button>
+                                        {(task.relativePath || task.sourcePath) && (
+                                          <div
+                                            className="briefing-task-source"
+                                            onClick={async () => {
+                                              if (task.sourcePath) {
+                                                try {
+                                                  await window.recallDesk.openFile(task.sourcePath);
+                                                } catch (e: any) {
+                                                  setError(e?.message || 'Could not open file.');
+                                                }
+                                              }
+                                            }}
+                                          >
+                                            <FileCode2 size={11} />
+                                            <span>{task.relativePath || task.sourcePath}</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Recently Completed Block */}
+                      {(briefingTab === 'overview' || briefingTab === 'deadlines') && activeBriefing.completedRecently.length > 0 && (
+                        <div className="briefing-block">
+                          <div className="briefing-block-header">
+                            <h4>
+                              <CheckSquare size={16} style={{ color: '#7fdfa5' }} />
+                              Completed Recently (Past 48 Hours)
+                            </h4>
+                            <span className="briefing-count">{activeBriefing.completedRecently.length}</span>
+                          </div>
+                          <div className="briefing-task-list">
+                            {activeBriefing.completedRecently.map(c => (
+                              <div className="briefing-task-item" key={c.id} style={{ opacity: 0.8 }}>
+                                <span style={{ color: '#7fdfa5', marginTop: 2 }}><Check size={14} /></span>
+                                <div className="briefing-task-content">
+                                  <span className="briefing-task-title" style={{ textDecoration: 'line-through', color: '#97a3b7' }}>
+                                    {c.title}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Key Decisions Block */}
+                      {(briefingTab === 'overview' || briefingTab === 'decisions') && (
+                        <div className="briefing-block">
+                          <div className="briefing-block-header">
+                            <h4>
+                              <ShieldCheck size={16} style={{ color: '#a6b9ff' }} />
+                              Key Saved Decisions & Notes
+                            </h4>
+                            <span className="briefing-count">{activeBriefing.keyDecisions.length}</span>
+                          </div>
+                          <div className="briefing-decision-list">
+                            {activeBriefing.keyDecisions.length === 0 ? (
+                              <div style={{ fontSize: 11, color: '#7a8597', padding: '10px 0' }}>
+                                No active decisions recorded in this scope.
+                              </div>
+                            ) : (
+                              activeBriefing.keyDecisions.map(d => (
+                                <div className="briefing-decision-item" key={d.id}>
+                                  <div className="briefing-decision-title">{d.title}</div>
+                                  {d.details && (
+                                    <p className="briefing-decision-details">{d.details}</p>
+                                  )}
+                                  {(d.relativePath || d.sourcePath) && (
+                                    <div
+                                      className="briefing-task-source"
+                                      onClick={async () => {
+                                        if (d.sourcePath) {
+                                          try {
+                                            await window.recallDesk.openFile(d.sourcePath);
+                                          } catch (e: any) {
+                                            setError(e?.message || 'Could not open file.');
+                                          }
+                                        }
+                                      }}
+                                    >
+                                      <FileText size={11} />
+                                      <span>{d.relativePath || d.sourcePath}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Right Column: Verified Activity & Briefing Preferences */}
+                  {(briefingTab === 'overview' || briefingTab === 'activity') && (
+                    <div className="briefing-column">
+                      {/* Activity Feed Block */}
+                      <div className="briefing-block">
+                        <div className="briefing-block-header">
+                          <h4>
+                            <Activity size={16} style={{ color: '#9ce8bd' }} />
+                            Verified Project Activity
+                          </h4>
+                          <span className="briefing-count">{activeBriefing.recentActivity.length}</span>
+                        </div>
+                        <div className="briefing-activity-timeline">
+                          {activeBriefing.recentActivity.length === 0 ? (
+                            <div style={{ fontSize: 11, color: '#7a8597', padding: '10px 0' }}>
+                              No activity logged yet. Runs upon folder indexing, task changes, and analysis runs.
+                            </div>
+                          ) : (
+                            activeBriefing.recentActivity.map(act => (
+                              <div className="briefing-activity-row" key={act.id}>
+                                <div className="briefing-activity-desc">{act.description}</div>
+                                <div className="briefing-activity-time">
+                                  {new Date(act.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {new Date(act.timestamp).toLocaleDateString()}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Briefing Settings & Local Reminder Panel */}
+                      <div className="briefing-block">
+                        <div className="briefing-block-header">
+                          <h4>
+                            <Settings2 size={16} style={{ color: '#c9d2e2' }} />
+                            Briefing Preferences
+                          </h4>
+                        </div>
+                        <div className="briefing-settings-panel">
+                          <div className="briefing-pref-row">
+                            <div className="briefing-pref-copy">
+                              <strong>Daily Reminder Notification</strong>
+                              <span>Show local desktop reminder when briefing is ready</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={briefingSettings?.notificationsEnabled || false}
+                              onChange={e => handleUpdateBriefingSettings({ notificationsEnabled: e.target.checked })}
+                            />
+                          </div>
+
+                          {briefingSettings?.notificationsEnabled && (
+                            <div className="briefing-pref-row">
+                              <div className="briefing-pref-copy">
+                                <strong>Preferred Reminder Time</strong>
+                                <span>Scheduled local time for daily notification</span>
+                              </div>
+                              <input
+                                type="time"
+                                className="briefing-pref-time"
+                                value={briefingSettings?.preferredTime || '09:00'}
+                                onChange={e => handleUpdateBriefingSettings({ preferredTime: e.target.value })}
+                              />
+                            </div>
+                          )}
+
+                          <div className="briefing-pref-row">
+                            <div className="briefing-pref-copy">
+                              <strong>Include Clipboard Memory</strong>
+                              <span>Opt-in to summarize non-sensitive copied items</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={briefingSettings?.includeClipboard || false}
+                              onChange={e => handleUpdateBriefingSettings({ includeClipboard: e.target.checked })}
+                            />
+                          </div>
+
+                          <div className="briefing-pref-note">
+                            🔒 <strong>Privacy guarantee:</strong> All processing is 100% local. Desktop reminders trigger only while RecallDesk is running. Sensitive text excerpts and clipboard contents are never exposed on the system lock screen.
+                          </div>
+
+                          <div style={{ paddingTop: 10, borderTop: '1px solid #1f2533', display: 'flex', justifyContent: 'flex-end' }}>
+                            <button
+                              className="danger-btn"
+                              style={{ fontSize: 11, padding: '6px 10px' }}
+                              onClick={() => handleDeleteBriefing(activeBriefing.id)}
+                            >
+                              <Trash2 size={12} /> Delete this briefing
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* History Modal */}
+            {showHistoryModal && (
+              <div className="briefing-modal-overlay" onClick={() => setShowHistoryModal(false)}>
+                <div className="briefing-modal" onClick={e => e.stopPropagation()}>
+                  <div className="briefing-modal-header">
+                    <h3>Saved Briefing History</h3>
+                    <button className="icon-btn" onClick={() => setShowHistoryModal(false)}>
+                      <X size={18} />
+                    </button>
+                  </div>
+                  <div className="briefing-modal-body">
+                    {briefingHistory.length === 0 ? (
+                      <div style={{ textAlign: 'center', color: '#828e9e', padding: '30px 0', fontSize: 12 }}>
+                        No saved briefings in history yet.
+                      </div>
+                    ) : (
+                      briefingHistory.map(b => (
+                        <div className="history-item-card" key={b.id}>
+                          <div className="history-item-top">
+                            <span className="history-item-date">{b.date}</span>
+                            <span className={`briefing-badge ${b.generationType}`}>
+                              {b.generationType === 'ai' ? 'AI' : 'Deterministic'} · {b.scopeName}
+                            </span>
+                          </div>
+                          <p className="history-item-summary">{b.summary}</p>
+                          <div className="history-item-actions">
+                            <span style={{ fontSize: 10, color: '#6d788b' }}>
+                              {new Date(b.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <button
+                                className="secondary-btn"
+                                style={{ padding: '4px 8px', fontSize: 10 }}
+                                onClick={() => {
+                                  setActiveBriefing(b);
+                                  setShowHistoryModal(false);
+                                }}
+                              >
+                                View
+                              </button>
+                              <button
+                                className="danger-btn"
+                                style={{ padding: '4px 8px', fontSize: 10 }}
+                                onClick={() => handleDeleteBriefing(b.id)}
+                              >
+                                <Trash2 size={11} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* VIEW 1: SEARCH VIEW */}
         {view === 'search' && <>
           <div className="hero"><div className="eyebrow"><Sparkles size={13}/> PERSONAL KNOWLEDGE, RECONNECTED</div><h1>Find what you <span>remember.</span></h1><p className="hero-copy">Search your files by meaning, not by filename. Your memory stays on your machine.</p></div>
@@ -844,6 +2382,370 @@ function App() {
           </div>}
           <div className="bottom-note"><LockKeyhole size={13}/><span>Files are read-only. OpenSearch stores extracted text and embeddings in your local app data folder.</span></div>
         </>}
+
+        {/* VIEW: SEARCHABLE CLIPBOARD MEMORY */}
+        {view === 'clipboard' && (
+          <div className="page-panel">
+            <div className="page-heading">
+              <div>
+                <div className="eyebrow"><ClipboardList size={13}/> RECALL YOUR COPIED KNOWLEDGE</div>
+                <h1>Clipboard Memory</h1>
+                <p>Remember useful code snippets, terminal commands, URLs, error messages, and notes you copy across any application.</p>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                {clipboardSettings?.enabled ? (
+                  <>
+                    <button
+                      className="secondary-btn"
+                      onClick={handleToggleClipboardPaused}
+                      title={clipboardSettings.paused ? "Resume capturing new clipboard items" : "Temporarily pause clipboard capture"}
+                    >
+                      {clipboardSettings.paused ? <Play size={14}/> : <Pause size={14}/>}
+                      {clipboardSettings.paused ? 'Resume Monitoring' : 'Pause Monitoring'}
+                    </button>
+                    <button
+                      className="danger-btn"
+                      onClick={() => setConfirmClearModal(true)}
+                      title="Clear clipboard history"
+                      style={{ padding: '8px 12px' }}
+                    >
+                      <Trash2 size={14}/> Clear History
+                    </button>
+                    <button
+                      className="secondary-btn"
+                      onClick={handleToggleClipboardEnabled}
+                      title="Disable clipboard memory"
+                      style={{ color: '#8892a4' }}
+                    >
+                      Turn Off
+                    </button>
+                  </>
+                ) : (
+                  <button className="primary-btn" onClick={handleToggleClipboardEnabled}>
+                    <ShieldCheck size={14}/> Turn On Clipboard Memory
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {error && <div className="alert error"><X size={16}/><span>{error}</span></div>}
+            {notice && <div className="alert notice"><Check size={16}/><span>{notice}</span><button onClick={() => setNotice('')}><X size={14}/></button></div>}
+
+            {!clipboardSettings?.enabled ? (
+              /* ONBOARDING & PRIVACY HERO CARD */
+              <div className="clipboard-privacy-hero">
+                <div className="clipboard-hero-top">
+                  <div className="clipboard-hero-icon"><LockKeyhole size={24}/></div>
+                  <div className="clipboard-hero-title">
+                    <h2>Private, Local-First Clipboard Knowledge</h2>
+                    <p>RecallDesk's Clipboard Memory is disabled by default to protect your privacy. Turn it on when you want to retain and search text you copy.</p>
+                  </div>
+                </div>
+
+                <div className="clipboard-features-grid">
+                  <div className="clipboard-feature-item">
+                    <div className="clipboard-feature-icon"><ShieldCheck size={16}/></div>
+                    <div className="clipboard-feature-copy">
+                      <strong>100% Local & On-Device</strong>
+                      <p>Your clipboard data never touches any remote server, cloud API, or external analytics. Everything resides safely in your user data directory.</p>
+                    </div>
+                  </div>
+                  <div className="clipboard-feature-item">
+                    <div className="clipboard-feature-icon"><LockKeyhole size={16}/></div>
+                    <div className="clipboard-feature-copy">
+                      <strong>Automated Secret Protection</strong>
+                      <p>Conservative filters actively ignore private keys, tokens, OpenAI/AWS/GitHub API keys, database connection strings, and passwords.</p>
+                    </div>
+                  </div>
+                  <div className="clipboard-feature-item">
+                    <div className="clipboard-feature-icon"><Cpu size={16}/></div>
+                    <div className="clipboard-feature-copy">
+                      <strong>Zero Overhead & Deduplication</strong>
+                      <p>Lightweight bounded polling checks for text changes and computes SHA-256 hashes to prevent redundant entries and save disk space.</p>
+                    </div>
+                  </div>
+                  <div className="clipboard-feature-item">
+                    <div className="clipboard-feature-icon"><Command size={16}/></div>
+                    <div className="clipboard-feature-copy">
+                      <strong>Instant Global Shortcut</strong>
+                      <p>Press <code>Alt+Shift+C</code> from any application to bring RecallDesk forward and instantly search past snippets and terminal commands.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="clipboard-disclaimer-box">
+                  <AlertCircle size={17}/>
+                  <div>
+                    <strong>Privacy Notice & Secret Detection Transparency:</strong>
+                    While RecallDesk employs conservative pattern matching to filter out common API keys, passwords, and private keys, automated detection cannot catch every proprietary or unknown secret format. You can pause monitoring anytime, delete individual entries permanently, or purge history.
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                  <button className="primary-btn" onClick={handleToggleClipboardEnabled} style={{ padding: '11px 20px', fontSize: 13 }}>
+                    <Check size={16}/> Enable Clipboard Memory
+                  </button>
+                  <span style={{ fontSize: 11, color: '#7a8596' }}>You can pause or disable this feature at any time.</span>
+                </div>
+              </div>
+            ) : (
+              /* ACTIVE CLIPBOARD WORKSPACE */
+              <div className="clipboard-container">
+                {/* Status Bar */}
+                <div className="clipboard-status-bar">
+                  <div className="clipboard-status-left">
+                    <span className={`clipboard-state-badge ${clipboardSettings.paused ? 'paused' : 'active'}`}>
+                      <span className={clipboardSettings.paused ? 'gray-dot' : 'green-dot'}/>
+                      {clipboardSettings.paused ? 'MONITORING PAUSED' : 'MONITORING ACTIVE'}
+                    </span>
+                    <span style={{ fontSize: 11, color: '#7e8a9d' }}>
+                      {clipboardItems.length} items captured · Retention limit: {clipboardSettings.retentionLimit || 200}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 10, color: '#6e798c' }}>
+                    <span>Global shortcut:</span>
+                    <kbd className="keycap">Alt</kbd> + <kbd className="keycap">Shift</kbd> + <kbd className="keycap">C</kbd>
+                  </div>
+                </div>
+
+                {/* Search Bar */}
+                <div className="clipboard-search-bar">
+                  <Search size={16} style={{ color: '#88e4af', flexShrink: 0 }}/>
+                  <input
+                    ref={clipboardInputRef}
+                    value={clipboardQuery}
+                    onChange={e => setClipboardQuery(e.target.value)}
+                    placeholder="Search copied code, commands, URLs, error messages, or custom labels…"
+                  />
+                  {clipboardQuery && (
+                    <button className="icon-btn" onClick={() => setClipboardQuery('')} title="Clear search">
+                      <X size={14}/>
+                    </button>
+                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span className="keycap">ESC</span> to clear
+                  </div>
+                </div>
+
+                {/* Filter Tabs */}
+                <div className="clipboard-filter-tabs">
+                  <button
+                    className={`clipboard-tab-btn ${clipboardFilter === 'all' ? 'active' : ''}`}
+                    onClick={() => setClipboardFilter('all')}
+                  >
+                    All <span className="tab-badge">{clipboardCounts.all}</span>
+                  </button>
+                  <button
+                    className={`clipboard-tab-btn ${clipboardFilter === 'pinned' ? 'active' : ''}`}
+                    onClick={() => setClipboardFilter('pinned')}
+                  >
+                    <Pin size={12}/> Pinned <span className="tab-badge">{clipboardCounts.pinned}</span>
+                  </button>
+                  <button
+                    className={`clipboard-tab-btn ${clipboardFilter === 'code' ? 'active' : ''}`}
+                    onClick={() => setClipboardFilter('code')}
+                  >
+                    <Terminal size={12}/> Code <span className="tab-badge">{clipboardCounts.code}</span>
+                  </button>
+                  <button
+                    className={`clipboard-tab-btn ${clipboardFilter === 'command' ? 'active' : ''}`}
+                    onClick={() => setClipboardFilter('command')}
+                  >
+                    <Command size={12}/> Commands <span className="tab-badge">{clipboardCounts.command}</span>
+                  </button>
+                  <button
+                    className={`clipboard-tab-btn ${clipboardFilter === 'url' ? 'active' : ''}`}
+                    onClick={() => setClipboardFilter('url')}
+                  >
+                    <Link size={12}/> URLs <span className="tab-badge">{clipboardCounts.url}</span>
+                  </button>
+                  <button
+                    className={`clipboard-tab-btn ${clipboardFilter === 'text' ? 'active' : ''}`}
+                    onClick={() => setClipboardFilter('text')}
+                  >
+                    <FileText size={12}/> Text <span className="tab-badge">{clipboardCounts.text}</span>
+                  </button>
+                  {clipboardCounts.json > 0 && (
+                    <button
+                      className={`clipboard-tab-btn ${clipboardFilter === 'json' ? 'active' : ''}`}
+                      onClick={() => setClipboardFilter('json')}
+                    >
+                      <Braces size={12}/> JSON <span className="tab-badge">{clipboardCounts.json}</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Items List */}
+                {filteredClipboardItems.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {filteredClipboardItems.map(item => {
+                      const isExpanded = expandedSnippetIds.has(item.id);
+                      const isLong = item.lineCount > 5 || item.charCount > 280;
+                      const isJustCopied = copiedItemId === item.id;
+
+                      return (
+                        <div className={`clipboard-card ${item.isPinned ? 'pinned' : ''}`} key={item.id}>
+                          <div className="clipboard-card-header">
+                            <div className="clipboard-header-left">
+                              <span className={`clipboard-type-pill ${item.contentType}`}>
+                                {item.contentType === 'code' ? <Terminal size={10}/> :
+                                 item.contentType === 'command' ? <Command size={10}/> :
+                                 item.contentType === 'url' ? <Link size={10}/> :
+                                 item.contentType === 'json' ? <Braces size={10}/> :
+                                 <FileText size={10}/>}
+                                {item.contentType}
+                              </span>
+
+                              {item.isPinned && (
+                                <span className="clipboard-pinned-pill">
+                                  <Pin size={10}/> PINNED
+                                </span>
+                              )}
+
+                              {item.label && (
+                                <span className="clipboard-label-pill">
+                                  <Tag size={10}/> {item.label}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="clipboard-header-right">
+                              <span>{item.charCount} chars · {item.lineCount} {item.lineCount === 1 ? 'line' : 'lines'}</span>
+                              <span>{new Date(item.capturedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {new Date(item.capturedAt).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+
+                          <div className="clipboard-snippet-box">
+                            <pre className={`clipboard-snippet-code ${isExpanded ? 'expanded' : ''}`}>
+                              <code>{item.text}</code>
+                            </pre>
+                            {isLong && (
+                              <button
+                                className="clipboard-expand-toggle"
+                                onClick={() => toggleExpandSnippet(item.id)}
+                              >
+                                {isExpanded ? 'Collapse snippet' : `Expand full snippet (${item.lineCount} lines)`}
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="clipboard-actions-bar">
+                            <div className="clipboard-actions-left">
+                              <button
+                                className={`clipboard-copy-btn ${isJustCopied ? 'copied' : ''}`}
+                                onClick={() => handleCopyClipboardItem(item)}
+                                title="Copy snippet to clipboard"
+                              >
+                                {isJustCopied ? <Check size={13}/> : <Copy size={13}/>}
+                                {isJustCopied ? 'Copied!' : 'Copy'}
+                              </button>
+                              <button
+                                className="secondary-btn"
+                                onClick={() => handleTogglePinClipboardItem(item)}
+                                title={item.isPinned ? "Unpin from top" : "Pin to top (protects from retention limit)"}
+                                style={{ padding: '6px 10px', fontSize: 11 }}
+                              >
+                                <Pin size={12}/> {item.isPinned ? 'Unpin' : 'Pin'}
+                              </button>
+                              <button
+                                className="secondary-btn"
+                                onClick={() => handleStartLabelItem(item)}
+                                title="Add a descriptive label or note to this snippet"
+                                style={{ padding: '6px 10px', fontSize: 11 }}
+                              >
+                                <Tag size={12}/> {item.label ? 'Edit Label' : 'Label'}
+                              </button>
+                            </div>
+
+                            <button
+                              className="icon-btn-danger"
+                              onClick={() => handleDeleteClipboardItem(item.id)}
+                              title="Delete permanently from clipboard history"
+                            >
+                              <Trash2 size={14}/>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="empty-results" style={{ marginTop: 20 }}>
+                    <div className="empty-icon"><ClipboardList size={24}/></div>
+                    <h3>
+                      {clipboardQuery.trim()
+                        ? `No clipboard items match "${clipboardQuery}"`
+                        : clipboardFilter === 'pinned'
+                        ? 'No pinned clipboard entries'
+                        : 'No clipboard entries yet'}
+                    </h3>
+                    <p>
+                      {clipboardQuery.trim()
+                        ? 'Try searching with different keywords or switch the filter tab.'
+                        : 'Copy code snippets, terminal commands, or documentation in your editor or browser to see them automatically indexed here.'}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Modal for Label / Rename */}
+            {editingLabelItem && (
+              <div className="modal-overlay" onClick={() => setEditingLabelItem(null)}>
+                <div className="modal-dialog" onClick={e => e.stopPropagation()}>
+                  <div className="modal-header">
+                    <h3>Set Label for Snippet</h3>
+                    <button className="icon-btn" onClick={() => setEditingLabelItem(null)}><X size={16}/></button>
+                  </div>
+                  <div className="modal-form-group">
+                    <label>Custom Label / Title</label>
+                    <input
+                      className="modal-input"
+                      value={labelInput}
+                      onChange={e => setLabelInput(e.target.value)}
+                      placeholder="e.g. Docker Compose Production Config, OAuth Callback URL"
+                      autoFocus
+                      onKeyDown={e => { if (e.key === 'Enter') handleSaveLabel(); }}
+                    />
+                  </div>
+                  <div className="modal-footer">
+                    <button className="secondary-btn" onClick={() => setEditingLabelItem(null)}>Cancel</button>
+                    <button className="primary-btn" onClick={handleSaveLabel}>Save Label</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Modal for Clear History Confirmation */}
+            {confirmClearModal && (
+              <div className="modal-overlay" onClick={() => setConfirmClearModal(false)}>
+                <div className="modal-dialog" onClick={e => e.stopPropagation()}>
+                  <div className="modal-header">
+                    <h3>Clear Clipboard History</h3>
+                    <button className="icon-btn" onClick={() => setConfirmClearModal(false)}><X size={16}/></button>
+                  </div>
+                  <p style={{ fontSize: 12, color: '#97a3b6', lineHeight: 1.6, margin: '10px 0 16px' }}>
+                    Are you sure you want to clear your clipboard memory history? This will permanently delete captured text snippets.
+                  </p>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#c7d2e4', cursor: 'pointer', marginBottom: 20 }}>
+                    <input
+                      type="checkbox"
+                      checked={preservePinnedOnClear}
+                      onChange={e => setPreservePinnedOnClear(e.target.checked)}
+                    />
+                    <strong>Keep pinned items safe (recommended)</strong>
+                  </label>
+                  <div className="modal-footer">
+                    <button className="secondary-btn" onClick={() => setConfirmClearModal(false)}>Cancel</button>
+                    <button className="danger-btn" onClick={handleClearClipboardHistory} style={{ padding: '8px 14px' }}>
+                      <Trash2 size={13}/> Yes, Clear History
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* VIEW 2: UNIVERSAL PROJECT INTELLIGENCE */}
         {view === 'intelligence' && (
@@ -1271,16 +3173,24 @@ function App() {
               <div>
                 <div className="eyebrow"><Sparkles size={13}/> PERSONAL KNOWLEDGE ENGINE</div>
                 <h1>Decision & Task Memory</h1>
-                <p>Discover unfinished work and important decisions grounded in your indexed local notes, markdown files, and source code.</p>
+                <p>Discover unfinished work, generate actionable assessment plans with timelines & tick marks, and track decisions grounded in your local files.</p>
               </div>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <button
                   className="primary-btn"
                   onClick={handleExtractMemory}
-                  disabled={extractingMemory || busy || !info?.indexedChunks}
-                  title={!info?.indexedChunks ? "Index at least one folder first" : "Scan indexed files to discover tasks and decisions"}
+                  disabled={extractingMemory || busy}
+                  title="Scan selected target files/folders or entire library"
                 >
-                  <Sparkles size={14}/> {extractingMemory ? 'Scanning…' : 'Find tasks & decisions'}
+                  <Sparkles size={14}/> {extractingMemory ? 'Scanning…' : memoryScopePaths.length > 0 ? `Extract (${memoryScopePaths.length} targets)` : 'Find tasks & decisions'}
+                </button>
+                <button
+                  className="secondary-btn"
+                  onClick={() => handleGenerateActionPlan()}
+                  disabled={generatingPlan}
+                  title="Generate structured Assessment or Project Action Plan with timeline milestones and tick marks"
+                >
+                  <FileStack size={14}/> {generatingPlan ? 'Analyzing…' : 'Plan from File…'}
                 </button>
                 <button className="secondary-btn" onClick={handleStartCreate}>
                   <Plus size={14}/> New item
@@ -1291,13 +3201,88 @@ function App() {
             {error && <div className="alert error"><X size={16}/><span>{error}</span></div>}
             {notice && <div className="alert notice"><Check size={16}/><span>{notice}</span><button onClick={() => setNotice('')}><X size={14}/></button></div>}
 
+            {/* Target Scope Selection Bar */}
+            <div className="memory-scope-bar">
+              <div className="memory-scope-row">
+                <div className="memory-scope-left">
+                  <span className="memory-scope-label">Target Scope:</span>
+                  <span className={`memory-scope-pill ${memoryScopePaths.length > 0 ? 'targeted' : ''}`}>
+                    {memoryScopePaths.length > 0 ? (
+                      <>
+                        <FileCode2 size={12} /> Targeted ({memoryScopePaths.length} custom file/folder targets)
+                      </>
+                    ) : (
+                      <>
+                        <FolderOpen size={12} /> All Indexed Files (Global Library)
+                      </>
+                    )}
+                  </span>
+                </div>
+                <div className="memory-scope-actions">
+                  <button className="secondary-btn" style={{ padding: '4px 10px', fontSize: 11 }} onClick={handleChooseMemoryFiles} title="Select specific files (PDF, Markdown, code, notes) to extract from">
+                    <FileText size={12} /> Select Files…
+                  </button>
+                  <button className="secondary-btn" style={{ padding: '4px 10px', fontSize: 11 }} onClick={handleChooseMemoryFolders} title="Select specific folder to extract from">
+                    <Folder size={12} /> Select Folder…
+                  </button>
+                  {memoryScopePaths.length > 0 && (
+                    <button className="secondary-btn" style={{ padding: '4px 10px', fontSize: 11 }} onClick={handleClearMemoryScope} title="Reset scope to entire indexed library">
+                      <X size={12} /> Clear (Use All)
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {memoryScopePaths.length > 0 && (
+                <div className="memory-scope-chips">
+                  {memoryScopePaths.map(p => (
+                    <div className="memory-scope-chip" key={p} title={p}>
+                      <FileCode2 size={11} style={{ color: '#9ce8bd' }} />
+                      <span>{p.split(/[/\\]/).pop()}</span>
+                      <button onClick={() => handleRemoveMemoryScopePath(p)} title="Remove from target scope">
+                        <X size={11} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Subview Switcher: List, Calendar, Timeline, Action Plan */}
+            <div className="memory-subview-tabs">
+              <button
+                className={`memory-subview-tab ${memorySubView === 'list' ? 'active' : ''}`}
+                onClick={() => setMemorySubView('list')}
+              >
+                <ListTodo size={14} /> Tasks & Decisions List
+              </button>
+              <button
+                className={`memory-subview-tab ${memorySubView === 'calendar' ? 'active' : ''}`}
+                onClick={() => setMemorySubView('calendar')}
+              >
+                <Calendar size={14} /> Calendar & Schedule
+              </button>
+              <button
+                className={`memory-subview-tab ${memorySubView === 'timeline' ? 'active' : ''}`}
+                onClick={() => setMemorySubView('timeline')}
+              >
+                <Clock size={14} /> Milestone Timeline
+              </button>
+              <button
+                className={`memory-subview-tab ${memorySubView === 'plan' ? 'active' : ''}`}
+                onClick={() => setMemorySubView('plan')}
+              >
+                <FileStack size={14} /> Action Plan & Notepad {actionPlans.length > 0 && <span className="tab-badge blue" style={{ marginLeft: 4 }}>{actionPlans.length}</span>}
+              </button>
+            </div>
+
             {/* Extraction Progress Card */}
             {(extractingMemory || extractProgress) && (
               <div className="progress-card" style={{ marginBottom: 20, border: '1px solid #3d6c52' }}>
                 <div className="progress-top">
                   <div className="spinner-label">
                     <LoaderCircle className="spin" size={17}/>
-                    <strong>{extractProgress?.message || 'Analyzing indexed documents for tasks and decisions...'}</strong>
+                    <strong>{extractProgress?.message || 'Analyzing documents for tasks and decisions...'}</strong>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <span>{extractProgress ? `${extractProgress.currentChunk}/${extractProgress.totalChunks}` : ''} passages</span>
@@ -1318,6 +3303,10 @@ function App() {
                 </div>
               </div>
             )}
+
+            {/* SUB-VIEW 1: Standard List View */}
+            {memorySubView === 'list' && (
+              <>
 
             {/* Filters and search bar */}
             <div className="memory-filter-bar">
@@ -1546,6 +3535,566 @@ function App() {
                     <Plus size={14}/> New item
                   </button>
                 </div>
+              </div>
+            )}
+              </>
+            )}
+
+            {/* SUB-VIEW 2: Interactive Calendar View */}
+            {memorySubView === 'calendar' && (
+              <div className="calendar-layout">
+                <div className="calendar-main">
+                  <div className="calendar-nav-bar">
+                    <div className="calendar-month-title">
+                      <CalendarDays size={16} style={{ color: '#82b1ff' }} />
+                      <h3>{calendarMonthYearStr}</h3>
+                    </div>
+                    <div className="calendar-nav-actions">
+                      <button
+                        className="calendar-nav-btn"
+                        onClick={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1))}
+                        title="Previous Month"
+                      >
+                        <ChevronLeft size={14} />
+                      </button>
+                      <button
+                        className="calendar-today-btn"
+                        onClick={() => {
+                          const today = new Date();
+                          setCalendarDate(today);
+                          setSelectedCalendarDate(today.toISOString().slice(0, 10));
+                        }}
+                      >
+                        Today
+                      </button>
+                      <button
+                        className="calendar-nav-btn"
+                        onClick={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1))}
+                        title="Next Month"
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="calendar-weekdays">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                      <div key={d} className="calendar-weekday-header">{d}</div>
+                    ))}
+                  </div>
+
+                  <div className="calendar-grid">
+                    {calendarDays.map((cell, idx) => (
+                      <div
+                        key={idx}
+                        className={`calendar-day-cell ${cell.isCurrentMonth ? '' : 'other-month'} ${cell.isToday ? 'today' : ''} ${cell.dateStr === selectedCalendarDate ? 'selected' : ''}`}
+                        onClick={() => setSelectedCalendarDate(cell.dateStr)}
+                      >
+                        <div className="calendar-cell-top">
+                          <span className="calendar-day-num">{cell.dayNum}</span>
+                          {cell.tasks.length > 0 && (
+                            <div className="calendar-tasks-indicator">
+                              {cell.tasks.slice(0, 3).map(t => (
+                                <span
+                                  key={t.id}
+                                  className={`calendar-task-dot ${t.status === 'completed' ? 'completed' : t.dueDate && t.dueDate < new Date().toISOString().slice(0, 10) ? 'overdue' : t.dueDate === new Date().toISOString().slice(0, 10) ? 'today' : 'scheduled'}`}
+                                  title={`${t.status.toUpperCase()}: ${t.title}`}
+                                />
+                              ))}
+                              {cell.tasks.length > 3 && (
+                                <span style={{ fontSize: 9, color: '#9bb1d3', fontWeight: 600 }}>+{cell.tasks.length - 3}</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Day Schedule & Task Completion Inspector */}
+                <div className="calendar-day-schedule">
+                  <div className="schedule-header">
+                    <h4>Schedule: {selectedCalendarDate}</h4>
+                    <span className="tab-badge blue">{selectedDateTasks.length}</span>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input
+                      className="memory-search-input"
+                      style={{ flex: 1, padding: '7px 10px', fontSize: 12 }}
+                      value={calendarNewTaskInput}
+                      onChange={e => setCalendarNewTaskInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') handleQuickAddCalendarTask(); }}
+                      placeholder="Add task for this date..."
+                    />
+                    <button
+                      className="primary-btn"
+                      style={{ padding: '6px 12px' }}
+                      onClick={handleQuickAddCalendarTask}
+                      title="Quick schedule task"
+                    >
+                      <Plus size={13} />
+                    </button>
+                  </div>
+
+                  <div className="schedule-list">
+                    {selectedDateTasks.length > 0 ? (
+                      selectedDateTasks.map(task => (
+                        <div key={task.id} className="schedule-task-item">
+                          <button
+                            className={`schedule-check-btn ${task.status === 'completed' ? 'checked' : ''}`}
+                            onClick={() => task.status === 'completed' ? handleReopenMemory(task.id) : handleCompleteMemory(task.id)}
+                            title={task.status === 'completed' ? 'Mark task open' : 'Mark task completed [x]'}
+                          >
+                            {task.status === 'completed' && <Check size={12} />}
+                          </button>
+                          <div className="schedule-task-content">
+                            <div className={`schedule-task-title ${task.status === 'completed' ? 'done' : ''}`}>
+                              {task.title}
+                            </div>
+                            <div className="schedule-task-meta">
+                              {task.relativePath && (
+                                <button
+                                  className="source-file-link"
+                                  onClick={() => handleOpenSourceFile(task.sourcePath)}
+                                  style={{ fontSize: 10, padding: 0 }}
+                                >
+                                  <Folder size={10} /> {task.relativePath}
+                                </button>
+                              )}
+                              <button
+                                className="action-btn-secondary"
+                                style={{ padding: '1px 6px', fontSize: 10 }}
+                                onClick={() => handleStartEdit(task)}
+                              >
+                                <Edit3 size={10} /> Edit
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ fontSize: 11, color: '#778498', padding: '16px 0', textAlign: 'center' }}>
+                        No tasks scheduled for {selectedCalendarDate}. Type above to add one.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SUB-VIEW 3: Milestone Timeline & Roadmap View */}
+            {memorySubView === 'timeline' && (
+              <div className="timeline-layout">
+                {/* Overall Velocity & Progress Bar */}
+                <div className="timeline-progress-bar">
+                  <div className="timeline-progress-labels">
+                    <span>
+                      <strong style={{ color: '#f0f4fc' }}>Milestone Execution Progress:</strong>{' '}
+                      {timelineData.completedCount} of {timelineData.totalCount} tasks completed
+                    </span>
+                    <span>
+                      <strong style={{ color: '#8fe0b2' }}>{timelineData.percentDone}%</strong> Complete
+                    </span>
+                  </div>
+                  <div className="timeline-track">
+                    <div className="timeline-fill" style={{ width: `${timelineData.percentDone}%` }} />
+                  </div>
+                </div>
+
+                {/* Overdue Lane */}
+                {timelineData.overdue.length > 0 && (
+                  <div className="timeline-lane" style={{ borderColor: '#5e2329', background: '#171114' }}>
+                    <div className="timeline-lane-title overdue">
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <AlertCircle size={15} /> Overdue Tasks ({timelineData.overdue.length})
+                      </span>
+                      <span className="tab-badge" style={{ background: '#4d1e23', color: '#ff8a94' }}>URGENT</span>
+                    </div>
+                    <div className="timeline-lane-cards">
+                      {timelineData.overdue.map(task => (
+                        <div key={task.id} className="timeline-card" style={{ borderColor: '#482025' }}>
+                          <div className="timeline-card-left">
+                            <button
+                              className="schedule-check-btn"
+                              onClick={() => handleCompleteMemory(task.id)}
+                              title="Mark completed"
+                            >
+                              <Check size={12} />
+                            </button>
+                            <div>
+                              <div className="timeline-card-title">{task.title}</div>
+                              <div className="timeline-card-meta">
+                                <span className="due-badge" style={{ color: '#ff7f8a', borderColor: '#5e252c' }}>
+                                  <Calendar size={10} /> Due {task.dueDate}
+                                </span>
+                                {task.relativePath && (
+                                  <button className="source-file-link" onClick={() => handleOpenSourceFile(task.sourcePath)} style={{ fontSize: 10, padding: 0 }}>
+                                    <Folder size={10} /> {task.relativePath}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <button className="action-btn-secondary" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => handleStartEdit(task)}>
+                            <Edit3 size={11} /> Edit
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Due Today Lane */}
+                <div className="timeline-lane">
+                  <div className="timeline-lane-title today">
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Clock size={15} /> Due Today ({timelineData.today.length})
+                    </span>
+                    <span className="tab-badge" style={{ background: '#392e17', color: '#f6c466' }}>TODAY</span>
+                  </div>
+                  <div className="timeline-lane-cards">
+                    {timelineData.today.length > 0 ? (
+                      timelineData.today.map(task => (
+                        <div key={task.id} className="timeline-card">
+                          <div className="timeline-card-left">
+                            <button
+                              className="schedule-check-btn"
+                              onClick={() => handleCompleteMemory(task.id)}
+                              title="Mark completed"
+                            >
+                              <Check size={12} />
+                            </button>
+                            <div>
+                              <div className="timeline-card-title">{task.title}</div>
+                              <div className="timeline-card-meta">
+                                <span className="due-badge" style={{ color: '#f6c466', borderColor: '#4d3d19' }}>
+                                  <Calendar size={10} /> Today
+                                </span>
+                                {task.relativePath && (
+                                  <button className="source-file-link" onClick={() => handleOpenSourceFile(task.sourcePath)} style={{ fontSize: 10, padding: 0 }}>
+                                    <Folder size={10} /> {task.relativePath}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <button className="action-btn-secondary" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => handleStartEdit(task)}>
+                            <Edit3 size={11} /> Edit
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ fontSize: 11, color: '#68778f', padding: '6px 0' }}>No tasks scheduled for today.</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* This Week Lane */}
+                <div className="timeline-lane">
+                  <div className="timeline-lane-title week">
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <CalendarDays size={15} /> This Week ({timelineData.thisWeek.length})
+                    </span>
+                    <span className="tab-badge blue">NEXT 7 DAYS</span>
+                  </div>
+                  <div className="timeline-lane-cards">
+                    {timelineData.thisWeek.length > 0 ? (
+                      timelineData.thisWeek.map(task => (
+                        <div key={task.id} className="timeline-card">
+                          <div className="timeline-card-left">
+                            <button
+                              className="schedule-check-btn"
+                              onClick={() => handleCompleteMemory(task.id)}
+                              title="Mark completed"
+                            >
+                              <Check size={12} />
+                            </button>
+                            <div>
+                              <div className="timeline-card-title">{task.title}</div>
+                              <div className="timeline-card-meta">
+                                <span className="due-badge">
+                                  <Calendar size={10} /> {task.dueDate}
+                                </span>
+                                {task.relativePath && (
+                                  <button className="source-file-link" onClick={() => handleOpenSourceFile(task.sourcePath)} style={{ fontSize: 10, padding: 0 }}>
+                                    <Folder size={10} /> {task.relativePath}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <button className="action-btn-secondary" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => handleStartEdit(task)}>
+                            <Edit3 size={11} /> Edit
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ fontSize: 11, color: '#68778f', padding: '6px 0' }}>No tasks due in the next 7 days.</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Upcoming (30 Days) Lane */}
+                <div className="timeline-lane">
+                  <div className="timeline-lane-title">
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Calendar size={15} style={{ color: '#7fdfa5' }} /> Upcoming 30 Days ({timelineData.upcoming.length})
+                    </span>
+                    <span className="tab-badge green">SCHEDULED</span>
+                  </div>
+                  <div className="timeline-lane-cards">
+                    {timelineData.upcoming.length > 0 ? (
+                      timelineData.upcoming.map(task => (
+                        <div key={task.id} className="timeline-card">
+                          <div className="timeline-card-left">
+                            <button
+                              className="schedule-check-btn"
+                              onClick={() => handleCompleteMemory(task.id)}
+                              title="Mark completed"
+                            >
+                              <Check size={12} />
+                            </button>
+                            <div>
+                              <div className="timeline-card-title">{task.title}</div>
+                              <div className="timeline-card-meta">
+                                <span className="due-badge">
+                                  <Calendar size={10} /> {task.dueDate}
+                                </span>
+                                {task.relativePath && (
+                                  <button className="source-file-link" onClick={() => handleOpenSourceFile(task.sourcePath)} style={{ fontSize: 10, padding: 0 }}>
+                                    <Folder size={10} /> {task.relativePath}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <button className="action-btn-secondary" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => handleStartEdit(task)}>
+                            <Edit3 size={11} /> Edit
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ fontSize: 11, color: '#68778f', padding: '6px 0' }}>No upcoming tasks scheduled in the next 30 days.</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Unscheduled Backlog Lane */}
+                <div className="timeline-lane">
+                  <div className="timeline-lane-title">
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <ListTodo size={15} style={{ color: '#a0aec0' }} /> Unscheduled Backlog ({timelineData.backlog.length})
+                    </span>
+                    <span className="tab-badge">NO DEADLINE</span>
+                  </div>
+                  <div className="timeline-lane-cards">
+                    {timelineData.backlog.length > 0 ? (
+                      timelineData.backlog.map(task => (
+                        <div key={task.id} className="timeline-card">
+                          <div className="timeline-card-left">
+                            <button
+                              className="schedule-check-btn"
+                              onClick={() => handleCompleteMemory(task.id)}
+                              title="Mark completed"
+                            >
+                              <Check size={12} />
+                            </button>
+                            <div>
+                              <div className="timeline-card-title">{task.title}</div>
+                              <div className="timeline-card-meta">
+                                {task.relativePath && (
+                                  <button className="source-file-link" onClick={() => handleOpenSourceFile(task.sourcePath)} style={{ fontSize: 10, padding: 0 }}>
+                                    <Folder size={10} /> {task.relativePath}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <button className="action-btn-secondary" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => handleStartEdit(task)}>
+                            <Edit3 size={11} /> Schedule Date
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ fontSize: 11, color: '#68778f', padding: '6px 0' }}>All active tasks have scheduled deadlines.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SUB-VIEW 4: Action Plan & Interactive Assessment Notepad */}
+            {memorySubView === 'plan' && (
+              <div className="action-plan-layout">
+                {/* Plan Selector & Generator Bar */}
+                <div className="action-plan-selector-bar">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <label style={{ fontSize: 12, color: '#9bb1d3', fontWeight: 600 }}>Active Plan:</label>
+                    <select
+                      className="modal-select"
+                      style={{ minWidth: 260, padding: '5px 10px', fontSize: 12 }}
+                      value={activePlanId || ''}
+                      onChange={e => {
+                        const selId = e.target.value;
+                        setActivePlanId(selId);
+                        const p = actionPlans.find(x => x.id === selId);
+                        if (p) setActivePlanNotes(p.rawNotes || '');
+                      }}
+                    >
+                      {actionPlans.length === 0 && <option value="">No plans generated yet</option>}
+                      {actionPlans.map(p => (
+                        <option key={p.id} value={p.id}>{p.title}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button
+                      className="primary-btn"
+                      onClick={() => handleGenerateActionPlan()}
+                      disabled={generatingPlan}
+                      title="Select assessment file, rubric, or specification to generate structured action plan"
+                    >
+                      <Sparkles size={13} /> {generatingPlan ? 'Generating Plan...' : 'Generate New Plan from Document'}
+                    </button>
+                    {activePlan && (
+                      <button
+                        className="danger-btn"
+                        style={{ padding: '6px 10px' }}
+                        onClick={() => handleDeletePlan(activePlan.id)}
+                        title="Delete this plan"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {!activePlan ? (
+                  <div className="empty-results" style={{ marginTop: 20 }}>
+                    <div className="empty-icon"><FileStack size={26} /></div>
+                    <h3>No Action Plan Selected</h3>
+                    <p>
+                      Generate an actionable to-do breakdown and timeline from any assessment, course rubric, or specification document.
+                      It extracts milestones, timeline targets, actionable tick marks, and an interactive notepad.
+                    </p>
+                    <button
+                      className="primary-btn"
+                      onClick={() => handleGenerateActionPlan()}
+                      disabled={generatingPlan}
+                    >
+                      <Sparkles size={14} /> {generatingPlan ? 'Analyzing Document...' : 'Choose File & Generate Plan'}
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {/* Summary Header Card */}
+                    <div className="action-plan-summary-card">
+                      <div>
+                        <div className="eyebrow" style={{ color: '#82b1ff' }}>ACTION PLAN & TIMELINE BREAKDOWN</div>
+                        <h3 style={{ marginTop: 4 }}>{activePlan.title}</h3>
+                      </div>
+                      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', fontSize: 11, color: '#9cb1d4' }}>
+                        <span>
+                          <strong>Source:</strong>{' '}
+                          <button
+                            className="source-file-link"
+                            onClick={() => handleOpenSourceFile(activePlan.sourcePath)}
+                            style={{ display: 'inline-flex', padding: 0 }}
+                          >
+                            <Folder size={11} /> {activePlan.sourceName || activePlan.sourcePath.split(/[/\\]/).pop()}
+                          </button>
+                        </span>
+                        <span><strong>Summary:</strong> {activePlan.summary}</span>
+                        {(activePlan.targetDeadline || activePlan.deadlines?.[0]?.date) && (
+                          <span className="due-badge">
+                            <Calendar size={11} /> Target Deadline: {activePlan.targetDeadline || activePlan.deadlines[0].date}
+                          </span>
+                        )}
+                        <span style={{ color: '#8fe0b2' }}>
+                          <strong>Checklist:</strong>{' '}
+                          {activePlan.phases.flatMap(p => p.tasks).filter(t => t.completed).length} /{' '}
+                          {activePlan.phases.flatMap(p => p.tasks).length} Tasks Done
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Action Plan Phases with Tick Marks */}
+                    <div className="action-plan-phases">
+                      {activePlan.phases.map(phase => (
+                        <div key={phase.id} className="action-plan-phase-card">
+                          <div className="action-plan-phase-header">
+                            <h4>{phase.phaseName}</h4>
+                            <span className="action-plan-phase-timeline">{phase.targetTimeline}</span>
+                          </div>
+                          {phase.description && (
+                            <div style={{ fontSize: 11, color: '#8b97a8' }}>{phase.description}</div>
+                          )}
+                          <div className="action-plan-tasks-list">
+                            {phase.tasks.map(task => (
+                              <div key={task.id} className="plan-task-row">
+                                <button
+                                  className={`plan-tick-btn ${task.completed ? 'checked' : ''}`}
+                                  onClick={() => handleTogglePlanStep(activePlan.id, task.id, !task.completed)}
+                                  title={task.completed ? 'Mark incomplete' : 'Mark task complete [x]'}
+                                >
+                                  {task.completed ? <Check size={12} /> : null}
+                                </button>
+                                <div className="plan-task-info">
+                                  <div className={`plan-task-title ${task.completed ? 'checked' : ''}`}>
+                                    {task.title}
+                                  </div>
+                                  {task.description && (
+                                    <div className="plan-task-desc">{task.description}</div>
+                                  )}
+                                  <div style={{ display: 'flex', gap: 8, marginTop: 4, alignItems: 'center', fontSize: 10, color: '#7e8b9f' }}>
+                                    {task.dueDate && (
+                                      <span className="due-badge">
+                                        <Calendar size={10} /> {task.dueDate}
+                                      </span>
+                                    )}
+                                    {task.points && (
+                                      <span style={{ background: '#1c2637', color: '#9cb3d8', padding: '1px 6px', borderRadius: 3, border: '1px solid #283952' }}>
+                                        Weight: {task.points}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Interactive Plan Notepad */}
+                    <div className="plan-notepad-panel">
+                      <div className="plan-notepad-header">
+                        <h4>
+                          <Edit3 size={14} style={{ color: '#8fe0b2' }} /> Assessment Notes & Scratchpad
+                        </h4>
+                        <button
+                          className="secondary-btn"
+                          style={{ padding: '4px 10px', fontSize: 11 }}
+                          onClick={() => handleSavePlanNotes(activePlan.id)}
+                        >
+                          <Save size={12} /> Save Notes
+                        </button>
+                      </div>
+                      <div style={{ fontSize: 11, color: '#7a889e' }}>
+                        Live scratchpad for notes, rubric checklist, and implementation reminders for this plan. Automatically persisted.
+                      </div>
+                      <textarea
+                        className="plan-notepad-textarea"
+                        value={activePlanNotes}
+                        onChange={e => setActivePlanNotes(e.target.value)}
+                        placeholder="Type implementation notes, assignment criteria checklist, scratchpad thoughts..."
+                      />
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -1821,6 +4370,57 @@ function App() {
                   <button className="danger-btn" onClick={clearIndex}>
                     Clear Entire Index
                   </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="settings-section" style={{ marginTop: 24 }}>
+              <div className="section-title-row">
+                <div className="section-title-icon"><Calendar size={17}/></div>
+                <div>
+                  <h3>Daily Memory Briefing</h3>
+                  <p>Configure local notification reminders, preferred scheduling time, and clipboard inclusion.</p>
+                </div>
+              </div>
+              <div className="settings-group">
+                <div className="settings-row">
+                  <div className="settings-icon"><Clock size={18}/></div>
+                  <div className="settings-copy">
+                    <strong>Daily Desktop Reminder</strong>
+                    <p>Trigger a private local notification when today's briefing is ready. Runs while RecallDesk is active.</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={briefingSettings?.notificationsEnabled || false}
+                    onChange={e => handleUpdateBriefingSettings({ notificationsEnabled: e.target.checked })}
+                  />
+                </div>
+                {briefingSettings?.notificationsEnabled && (
+                  <div className="settings-row">
+                    <div className="settings-icon"><Calendar size={18}/></div>
+                    <div className="settings-copy">
+                      <strong>Scheduled Reminder Time</strong>
+                      <p>Time of day for the local notification reminder.</p>
+                    </div>
+                    <input
+                      type="time"
+                      className="briefing-pref-time"
+                      value={briefingSettings?.preferredTime || '09:00'}
+                      onChange={e => handleUpdateBriefingSettings({ preferredTime: e.target.value })}
+                    />
+                  </div>
+                )}
+                <div className="settings-row">
+                  <div className="settings-icon"><ClipboardList size={18}/></div>
+                  <div className="settings-copy">
+                    <strong>Include Clipboard Memory</strong>
+                    <p>Summarize non-sensitive copied commands, code, and notes in the briefing (disabled by default).</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={briefingSettings?.includeClipboard || false}
+                    onChange={e => handleUpdateBriefingSettings({ includeClipboard: e.target.checked })}
+                  />
                 </div>
               </div>
             </div>

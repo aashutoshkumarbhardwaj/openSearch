@@ -37,6 +37,39 @@ export interface MemorySearchResult {
   score: number;
 }
 
+export interface ActionPlanTask {
+  id: string;
+  title: string;
+  description?: string;
+  dueDate?: string;
+  completed: boolean;
+  sourceExcerpt?: string;
+  memoryItemId?: string;
+  points?: string;
+}
+
+export interface ActionPlanPhase {
+  id: string;
+  phaseName: string;
+  targetTimeline?: string;
+  description?: string;
+  tasks: ActionPlanTask[];
+}
+
+export interface ActionPlan {
+  id: string;
+  title: string;
+  sourcePath: string;
+  sourceName: string;
+  createdAt: string;
+  updatedAt: string;
+  summary: string;
+  rawNotes: string;
+  phases: ActionPlanPhase[];
+  deadlines: Array<{ title: string; date: string; description?: string }>;
+  targetDeadline?: string;
+}
+
 // Universal Project Intelligence Types
 export type SourceType =
   | 'text'
@@ -177,7 +210,9 @@ export interface RecallDeskAPI {
 
   // Decision & Task Memory API
   listMemory: (filter?: { type?: MemoryType; status?: MemoryStatus; query?: string }) => Promise<MemoryItem[]>;
-  extractMemory: () => Promise<{ extractedCount: number; newCount: number; totalProcessed: number }>;
+  chooseMemoryFiles: () => Promise<string[]>;
+  chooseMemoryFolders: () => Promise<string[]>;
+  extractMemory: (options?: { targetPaths?: string[] }) => Promise<{ extractedCount: number; newCount: number; totalProcessed: number }>;
   cancelExtractMemory: () => Promise<boolean>;
   confirmMemory: (id: string) => Promise<MemoryItem>;
   updateMemory: (payload: { id: string; updates: { title?: string; details?: string; dueDate?: string; status?: MemoryStatus } }) => Promise<MemoryItem>;
@@ -198,6 +233,11 @@ export interface RecallDeskAPI {
   searchMemory: (query: string, options?: { includeSuggested?: boolean; status?: MemoryStatus; type?: MemoryType }) => Promise<MemorySearchResult[]>;
   openSourceFile: (path: string) => Promise<string>;
   onExtractionProgress: (callback: (data: ExtractionProgress) => void) => () => void;
+  generateActionPlan: (filePath: string) => Promise<ActionPlan>;
+  listActionPlans: () => Promise<ActionPlan[]>;
+  toggleActionPlanStep: (payload: { planId: string; taskId: string; completed: boolean }) => Promise<ActionPlan | null>;
+  saveActionPlanNotes: (payload: { planId: string; notes: string }) => Promise<ActionPlan | null>;
+  deleteActionPlan: (planId: string) => Promise<boolean>;
 
   // Universal Project Intelligence API
   chooseFilesToAnalyze: () => Promise<string[]>;
@@ -213,6 +253,140 @@ export interface RecallDeskAPI {
     dueDate?: string;
   }) => Promise<{ success: boolean; memoryItem: MemoryItem }>;
   onIntelligenceProgress: (callback: (data: IntelligenceProgress) => void) => () => void;
+
+  // Searchable Clipboard Memory API
+  getClipboardSettings: () => Promise<ClipboardSettings>;
+  updateClipboardSettings: (updates: Partial<ClipboardSettings>) => Promise<ClipboardSettings>;
+  listClipboardItems: (filter?: ClipboardFilter) => Promise<ClipboardItem[]>;
+  searchClipboard: (query: string, options?: { pinnedOnly?: boolean; contentType?: ClipboardContentType | 'all'; limit?: number }) => Promise<ClipboardSearchResult[]>;
+  copyClipboardItem: (id: string) => Promise<{ success: boolean }>;
+  pinClipboardItem: (id: string, isPinned: boolean) => Promise<ClipboardItem>;
+  setClipboardLabel: (id: string, label: string) => Promise<ClipboardItem>;
+  deleteClipboardItem: (id: string) => Promise<boolean>;
+  clearClipboardHistory: (preservePinned?: boolean) => Promise<number>;
+  onClipboardItemCaptured: (callback: (data: { item: ClipboardItem; status: 'added' | 'duplicate_updated' }) => void) => () => void;
+  onFocusClipboard: (callback: () => void) => () => void;
+
+  // Daily Memory Briefing API
+  getTodayBriefing: (scope?: string) => Promise<DailyBriefing | null>;
+  generateBriefing: (options?: BriefingGenerateOptions) => Promise<DailyBriefing>;
+  listBriefingHistory: (limit?: number) => Promise<DailyBriefing[]>;
+  deleteBriefing: (id: string) => Promise<boolean>;
+  getBriefingSettings: () => Promise<BriefingSettings>;
+  updateBriefingSettings: (updates: Partial<BriefingSettings>) => Promise<BriefingSettings>;
+  getBriefingActivityLog: (limit?: number, scope?: string) => Promise<BriefingActivityItem[]>;
+  onNavigateBriefing: (callback: () => void) => () => void;
+}
+
+export type BriefingScope = 'all' | string;
+
+export interface BriefingFocusItem {
+  id: string;
+  title: string;
+  rationale: string;
+  priority: 'high' | 'medium' | 'low';
+  relatedTaskId?: string;
+  relatedSource?: string;
+  isCompleted?: boolean;
+}
+
+export interface BriefingTaskItem {
+  id: string;
+  title: string;
+  details?: string;
+  dueDate?: string;
+  sourcePath?: string;
+  relativePath?: string;
+  status: 'open' | 'completed';
+}
+
+export interface BriefingDecisionItem {
+  id: string;
+  title: string;
+  details?: string;
+  sourcePath?: string;
+  relativePath?: string;
+  updatedAt: number;
+}
+
+export interface BriefingActivityItem {
+  id: string;
+  type: 'indexing' | 'task' | 'decision' | 'intelligence' | 'file_change';
+  description: string;
+  timestamp: number;
+  metadata?: Record<string, any>;
+}
+
+export interface DailyBriefing {
+  id: string;
+  date: string;
+  createdAt: number;
+  scope: BriefingScope;
+  scopeName: string;
+  summary: string;
+  focusItems: BriefingFocusItem[];
+  openTasks: BriefingTaskItem[];
+  completedRecently: BriefingTaskItem[];
+  keyDecisions: BriefingDecisionItem[];
+  recentActivity: BriefingActivityItem[];
+  insufficientData: boolean;
+  generationType: 'ai' | 'deterministic';
+  modelUsed?: string;
+}
+
+export interface BriefingSettings {
+  enabled: boolean;
+  includeClipboard: boolean;
+  notificationsEnabled: boolean;
+  preferredTime: string;
+  lastNotifiedDate?: string;
+  defaultScope: BriefingScope;
+}
+
+export interface BriefingGenerateOptions {
+  scope?: BriefingScope;
+  includeClipboard?: boolean;
+  forceRegenerate?: boolean;
+}
+
+export type ClipboardContentType = 'code' | 'command' | 'url' | 'json' | 'text';
+
+export interface ClipboardItem {
+  id: string;
+  text: string;
+  capturedAt: number;
+  contentHash: string;
+  charCount: number;
+  lineCount: number;
+  contentType: ClipboardContentType;
+  isPinned: boolean;
+  label?: string;
+  sourceApp?: string;
+  embedding?: number[];
+}
+
+export interface ClipboardSettings {
+  enabled: boolean;
+  paused: boolean;
+  pollIntervalMs: number;
+  minCharLength: number;
+  maxCharLength: number;
+  retentionLimit: number;
+  ignoredApps: string[];
+  filterSensitiveData: boolean;
+}
+
+export interface ClipboardFilter {
+  query?: string;
+  pinnedOnly?: boolean;
+  contentType?: ClipboardContentType | 'all';
+  limit?: number;
+}
+
+export interface ClipboardSearchResult {
+  item: ClipboardItem;
+  score: number;
+  matchReason: 'exact' | 'keyword' | 'semantic';
 }
 
 declare global {

@@ -37,7 +37,9 @@ const api = {
 
   // Decision & Task Memory API
   listMemory: (filter?: any) => ipcRenderer.invoke('memory:list', filter),
-  extractMemory: () => ipcRenderer.invoke('memory:extract'),
+  chooseMemoryFiles: () => ipcRenderer.invoke('memory:choose-files'),
+  chooseMemoryFolders: () => ipcRenderer.invoke('memory:choose-folders'),
+  extractMemory: (options?: any) => ipcRenderer.invoke('memory:extract', options),
   cancelExtractMemory: () => ipcRenderer.invoke('memory:cancel-extract'),
   confirmMemory: (id: string) => ipcRenderer.invoke('memory:confirm', id),
   updateMemory: (payload: { id: string; updates: any }) => ipcRenderer.invoke('memory:update', payload),
@@ -53,6 +55,11 @@ const api = {
     ipcRenderer.on('memory:extraction-progress', listener);
     return () => ipcRenderer.removeListener('memory:extraction-progress', listener);
   },
+  generateActionPlan: (filePath: string) => ipcRenderer.invoke('memory:generate-plan', filePath),
+  listActionPlans: () => ipcRenderer.invoke('memory:list-plans'),
+  toggleActionPlanStep: (payload: { planId: string; taskId: string; completed: boolean }) => ipcRenderer.invoke('memory:toggle-plan-step', payload),
+  saveActionPlanNotes: (payload: { planId: string; notes: string }) => ipcRenderer.invoke('memory:save-plan-notes', payload),
+  deleteActionPlan: (planId: string) => ipcRenderer.invoke('memory:delete-plan', planId),
 
   // Universal Project Intelligence API
   chooseFilesToAnalyze: () => ipcRenderer.invoke('intelligence:choose-files'),
@@ -65,6 +72,41 @@ const api = {
     const listener = (_: unknown, data: any) => callback(data);
     ipcRenderer.on('intelligence:progress', listener);
     return () => ipcRenderer.removeListener('intelligence:progress', listener);
+  },
+
+  // Searchable Clipboard Memory API
+  getClipboardSettings: () => ipcRenderer.invoke('clipboard:get-settings'),
+  updateClipboardSettings: (updates: any) => ipcRenderer.invoke('clipboard:update-settings', updates),
+  listClipboardItems: (filter?: any) => ipcRenderer.invoke('clipboard:list-items', filter),
+  searchClipboard: (query: string, options?: any) => ipcRenderer.invoke('clipboard:search', query, options),
+  copyClipboardItem: (id: string) => ipcRenderer.invoke('clipboard:copy-item', id),
+  pinClipboardItem: (id: string, isPinned: boolean) => ipcRenderer.invoke('clipboard:pin-item', id, isPinned),
+  setClipboardLabel: (id: string, label: string) => ipcRenderer.invoke('clipboard:set-label', id, label),
+  deleteClipboardItem: (id: string) => ipcRenderer.invoke('clipboard:delete-item', id),
+  clearClipboardHistory: (preservePinned?: boolean) => ipcRenderer.invoke('clipboard:clear-history', preservePinned),
+  onClipboardItemCaptured: (callback: (data: any) => void) => {
+    const listener = (_: unknown, data: any) => callback(data);
+    ipcRenderer.on('clipboard:item-captured', listener);
+    return () => ipcRenderer.removeListener('clipboard:item-captured', listener);
+  },
+  onFocusClipboard: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('clipboard:focus', listener);
+    return () => ipcRenderer.removeListener('clipboard:focus', listener);
+  },
+
+  // Daily Memory Briefing API
+  getTodayBriefing: (scope?: string) => ipcRenderer.invoke('briefing:get-today', scope),
+  generateBriefing: (options?: any) => ipcRenderer.invoke('briefing:generate', options),
+  listBriefingHistory: (limit?: number) => ipcRenderer.invoke('briefing:list-history', limit),
+  deleteBriefing: (id: string) => ipcRenderer.invoke('briefing:delete', id),
+  getBriefingSettings: () => ipcRenderer.invoke('briefing:get-settings'),
+  updateBriefingSettings: (updates: any) => ipcRenderer.invoke('briefing:update-settings', updates),
+  getBriefingActivityLog: (limit?: number, scope?: string) => ipcRenderer.invoke('briefing:get-activity-log', limit, scope),
+  onNavigateBriefing: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('briefing:navigate', listener);
+    return () => ipcRenderer.removeListener('briefing:navigate', listener);
   }
 };
 

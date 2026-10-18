@@ -33,6 +33,7 @@ export interface ExtractionProgress {
 export interface ExtractionOptions {
   forceAll?: boolean;
   chunkBatchSize?: number;
+  targetPaths?: string[];
 }
 
 export interface MemoryFilter {
@@ -54,3 +55,35 @@ export interface SourceChunk {
   text: string;
 }
 
+export interface ActionPlanTask {
+  id: string;
+  title: string;
+  description?: string;
+  dueDate?: string;
+  completed: boolean;
+  sourceExcerpt?: string;
+  memoryItemId?: string;
+  points?: string;
+}
+
+export interface ActionPlanPhase {
+  id: string;
+  phaseName: string;
+  targetTimeline?: string;
+  description?: string;
+  tasks: ActionPlanTask[];
+}
+
+export interface ActionPlan {
+  id: string;
+  title: string;
+  sourcePath: string;
+  sourceName: string;
+  createdAt: string;
+  updatedAt: string;
+  summary: string;
+  rawNotes: string;
+  phases: ActionPlanPhase[];
+  deadlines: Array<{ title: string; date: string; description?: string }>;
+  targetDeadline?: string;
+}

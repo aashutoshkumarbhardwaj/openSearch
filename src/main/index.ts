@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, shell, Notification } from 'electron';
 import { join, extname, basename, relative, resolve } from 'node:path';
 import { promises as fs, existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -7,6 +7,8 @@ import { randomUUID } from 'node:crypto';
 import { PDFParse } from 'pdf-parse';
 import { MemoryController } from './memory/index.ts';
 import { IntelligenceController } from './intelligence/index.ts';
+import { ClipboardController } from './clipboard/index.ts';
+import { BriefingController } from './briefing/index.ts';
 
 const isDev = !app.isPackaged;
 const SUPPORTED = new Set(['.pdf', '.txt', '.md', '.mdx', '.json', '.js', '.jsx', '.ts', '.tsx', '.py', '.html', '.css', '.scss', '.yml', '.yaml', '.toml', '.ini', '.log', '.sh', '.sql', '.rs', '.go', '.java', '.c', '.h', '.cpp', '.env.example']);
@@ -189,9 +191,44 @@ async function indexFolders(roots: string[]) {
         if (i % 10 === 0) broadcast('index:progress', { ...indexStatus, chunks: i, done: false, stage: 'embedding' });
       }
     } catch (e) { console.error('Embedding step failed; preserving keyword index:', e); }
+
+    // Accurate verification of file changes between indexing passes
+    const oldFiles = new Map<string, number>();
+    for (const c of chunks) {
+      if (!oldFiles.has(c.path)) oldFiles.set(c.path, c.modifiedAt);
+    }
+    const newFiles = new Map<string, number>();
+    for (const c of newChunks) {
+      if (!newFiles.has(c.path)) newFiles.set(c.path, c.modifiedAt);
+    }
+    let added = 0;
+    let changed = 0;
+    let removed = 0;
+    for (const [p, mtime] of newFiles) {
+      if (!oldFiles.has(p)) added++;
+      else if (oldFiles.get(p) !== mtime) changed++;
+    }
+    for (const p of oldFiles.keys()) {
+      if (!newFiles.has(p)) removed++;
+    }
+
     chunks = newChunks; indexedRoots = roots; indexStatus.chunks = chunks.length; indexStatus.lastIndexedAt = Date.now();
     await saveIndex();
     broadcast('index:progress', { ...indexStatus, done: true });
+
+    if (briefingController) {
+      const changeParts: string[] = [];
+      if (added > 0) changeParts.push(`${added} added`);
+      if (changed > 0) changeParts.push(`${changed} changed`);
+      if (removed > 0) changeParts.push(`${removed} removed`);
+      const changeSummary = changeParts.length > 0 ? ` (${changeParts.join(', ')})` : ' (no file changes detected)';
+      await briefingController.logActivity(
+        'indexing',
+        `Indexed ${indexStatus.files} file(s) across ${roots.length} folder(s)${changeSummary}`,
+        { files: indexStatus.files, chunks: chunks.length, roots, added, changed, removed }
+      ).catch(() => {});
+    }
+
     return { ...indexStatus, roots: indexedRoots, semantic: chunks.some(c => c.embedding) };
   } finally { indexing = false; }
 }
@@ -403,6 +440,8 @@ async function deleteOllamaModel(modelName: string) {
 }
 
 let memoryController: MemoryController | null = null;
+let clipboardController: ClipboardController | null = null;
+let briefingController: BriefingController | null = null;
 
 app.whenReady().then(async () => {
   await loadIndex();
@@ -413,6 +452,41 @@ app.whenReady().then(async () => {
     (channel, payload) => broadcast(channel, payload)
   );
   await memoryController.init();
+
+  briefingController = new BriefingController({
+    storageDir: app.getPath('userData'),
+    memoryStore: memoryController.getStore(),
+    getRecentClipboard: async (limit) => {
+      if (!clipboardController) return [];
+      const items = clipboardController.getStore().listItems({ limit });
+      return items.map(i => ({ text: i.text, contentType: i.contentType, capturedAt: i.capturedAt }));
+    },
+    activeModel: activeLlmModel,
+    notificationSender: (title, body, onClick) => {
+      if (Notification.isSupported()) {
+        const notif = new Notification({
+          title,
+          body,
+          silent: false
+        });
+        notif.on('click', () => {
+          if (!mainWindow) createWindow();
+          mainWindow?.show();
+          mainWindow?.focus();
+          mainWindow?.webContents.send('briefing:navigate');
+          if (onClick) onClick();
+        });
+        notif.show();
+      }
+    }
+  });
+  await briefingController.initialize();
+
+  // Connect memory mutation events to briefing activity tracker
+  memoryController.setOnActivity((type, desc, meta) => {
+    briefingController?.logActivity(type, desc, meta).catch(() => {});
+  });
+
   const intelligenceController = new IntelligenceController(
     memoryController.getStore(),
     () => chunks,
@@ -420,8 +494,31 @@ app.whenReady().then(async () => {
     (channel, payload) => broadcast(channel, payload)
   );
   intelligenceController.registerIpcHandlers();
+
+  clipboardController = new ClipboardController(
+    app.getPath('userData'),
+    (channel, payload) => broadcast(channel, payload),
+    () => getEmbedder()
+  );
+  await clipboardController.init();
+  clipboardController.registerIpcHandlers();
+
   createWindow();
-  globalShortcut.register('Alt+Shift+Space', () => { if (!mainWindow) createWindow(); mainWindow?.show(); mainWindow?.focus(); mainWindow?.webContents.send('search:focus'); });
+  try {
+    globalShortcut.register('Alt+Shift+Space', () => { if (!mainWindow) createWindow(); mainWindow?.show(); mainWindow?.focus(); mainWindow?.webContents.send('search:focus'); });
+  } catch (err) {
+    console.warn('Failed to register global shortcut Alt+Shift+Space:', err);
+  }
+  try {
+    globalShortcut.register('Alt+Shift+C', () => {
+      if (!mainWindow) createWindow();
+      mainWindow?.show();
+      mainWindow?.focus();
+      mainWindow?.webContents.send('clipboard:focus');
+    });
+  } catch (err) {
+    console.warn('Failed to register global shortcut Alt+Shift+C:', err);
+  }
   ipcMain.handle('app:info', () => ({ version: app.getVersion(), platform: process.platform, roots: indexedRoots, status: indexStatus, modelStatus, indexedChunks: chunks.length }));
   ipcMain.handle('folders:choose', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'multiSelections'], title: 'Choose folders to index' });
@@ -441,6 +538,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('models:list', async () => listOllamaModels());
   ipcMain.handle('models:set-active', async (_event, model: string) => {
     activeLlmModel = model;
+    briefingController?.setActiveModel(model);
     await saveIndex();
     return { success: true, activeModel: activeLlmModel };
   });
@@ -464,7 +562,38 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('index:clear', async () => { chunks = []; indexedRoots = []; indexStatus = { files: 0, chunks: 0, errors: 0, lastIndexedAt: null }; await saveIndex(); return true; });
   ipcMain.handle('model:load', async () => { await getEmbedder(); return modelStatus; });
+
+  // Daily Memory Briefing IPC Handlers
+  ipcMain.handle('briefing:get-today', async (_event, scope?: string) => {
+    return briefingController?.getTodayBriefing(scope);
+  });
+  ipcMain.handle('briefing:generate', async (_event, options?: any) => {
+    if (!briefingController) throw new Error('Briefing service not initialized.');
+    return briefingController.generateBriefing(options || {});
+  });
+  ipcMain.handle('briefing:list-history', async (_event, limit?: number) => {
+    return briefingController?.listBriefings(limit);
+  });
+  ipcMain.handle('briefing:delete', async (_event, id: string) => {
+    if (typeof id !== 'string' || !id.trim()) throw new Error('Invalid briefing ID.');
+    return briefingController?.deleteBriefing(id.trim());
+  });
+  ipcMain.handle('briefing:get-settings', async () => {
+    return briefingController?.getSettings();
+  });
+  ipcMain.handle('briefing:update-settings', async (_event, updates: any) => {
+    if (!updates || typeof updates !== 'object') throw new Error('Invalid settings object.');
+    return briefingController?.updateSettings(updates);
+  });
+  ipcMain.handle('briefing:get-activity-log', async (_event, limit?: number, scope?: string) => {
+    return briefingController?.getActivityLog(limit, scope);
+  });
+
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
-app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('will-quit', () => {
+  briefingController?.shutdown();
+  clipboardController?.stopService();
+  globalShortcut.unregisterAll();
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
