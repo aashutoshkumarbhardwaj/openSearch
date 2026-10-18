@@ -1,0 +1,970 @@
+# RecallDesk — Build Feature 3: Decision & Task Memory
+
+You are working on my existing project, RecallDesk, a local-first desktop application built with Electron, React, TypeScript, and electron-vite.
+
+## Context
+
+RecallDesk already has:
+- Local folder indexing for text files, Markdown, and source code.
+- Semantic search using `@huggingface/transformers` and `Xenova/all-MiniLM-L6-v2`.
+- Keyword-based search combined with semantic search.
+- Search results with source file paths and relevant text excerpts.
+- A local AI integration using Ollama, intended to answer questions using indexed content and provide source references.
+- A packaged macOS `.dmg` build.
+
+The project uses:
+- `src/main/index.ts` — Electron main process, indexing, search, persistence, and IPC handlers.
+- `src/preload/index.ts` — secure API exposed through `contextBridge`.
+- `src/renderer/src/App.tsx` — React UI.
+- `src/renderer/src/vite-env.d.ts` — renderer API types.
+- `app.getPath('userData')` — local application data storage.
+
+Inspect the actual repository before changing anything. Do not assume the current files exactly match this description.
+
+## Goal
+
+Build Feature 3: Decision & Task Memory.
+
+RecallDesk should help users discover unfinished work and important decisions from their indexed local documents, project notes, Markdown files, and source code.
+
+Examples:
+- Task: “Finish the authentication flow before Friday.”
+- Task: “Add retry handling to the API client.”
+- Decision: “Use PostgreSQL instead of MongoDB for the production database.”
+- Decision: “Keep embeddings and document indexing local.”
+- Task: “Fix the failing integration tests.”
+
+These are examples, not fixed rules. Extract items only when the indexed content provides reasonable evidence.
+
+## Critical requirements
+
+1. Local-first and privacy-first.
+2. Never automatically mark an extracted item as a confirmed task or decision.
+3. Every suggestion must include its source file and supporting excerpt.
+4. Let users confirm, edit, dismiss, complete, and reopen items.
+5. Avoid duplicate suggestions when extraction runs repeatedly.
+6. Do not invent deadlines, priorities, decisions, or commitments.
+7. Preserve all existing indexing, semantic search, keyword search, and local AI functionality.
+8. Do not send indexed files or user content to external APIs.
+9. Do not introduce a cloud database, analytics, telemetry, or unnecessary dependencies.
+10. Keep the feature usable when Ollama or the embedding model is unavailable.
+
+## Phase 1 — Inspect the existing architecture
+
+Before coding:
+
+- Inspect `src/main/index.ts`, `src/preload/index.ts`, `src/renderer/src/App.tsx`, `src/renderer/src/vite-env.d.ts`, `package.json`, and relevant configuration files.
+- Identify how the current Ollama integration works.
+- Identify existing IPC patterns, TypeScript types, index persistence, and UI conventions.
+- Check the available test and build commands.
+- Report a short implementation plan and any compatibility risks.
+
+Then implement the feature using the existing architecture. Do not rewrite the application from scratch.
+
+## Phase 2 — Define the memory data model
+
+Create a typed model for task and decision records.
+
+Suggested fields:
+
+- `id`: stable unique identifier.
+- `type`: `task` or `decision`.
+- `title`: concise, readable title.
+- `details`: optional explanation.
+- `sourcePath`: absolute source file path.
+- `relativePath`: relative path when available.
+- `sourceExcerpt`: text supporting the suggestion.
+- `status`: `suggested`, `open`, `completed`, or `dismissed`.
+- `confidence`: optional confidence score, with a documented interpretation.
+- `dueDate`: optional; only set when explicitly supported by the source or entered by the user.
+- `createdAt`: timestamp.
+- `updatedAt`: timestamp.
+- `contentHash` or another stable deduplication key.
+
+Adjust the model if the existing architecture suggests a better approach.
+
+Persist memory records separately from the current search index, for example in `memory-items-v1.json` inside `app.getPath('userData')`.
+
+Use safe persistence practices, including validation when loading data and atomic writes where practical.
+
+Do not modify or replace the existing search index format unnecessarily.
+
+## Phase 3 — Extract candidate tasks and decisions
+
+Use the existing local Ollama integration to extract candidate items from indexed chunks.
+
+Requirements:
+
+- Use the configured local Ollama endpoint and model rather than hardcoding a new model.
+- Inspect the actual Ollama request and response format before implementing extraction.
+- Process manageable batches of indexed chunks.
+- Use a strict JSON output schema and validate model output before saving anything.
+- Handle malformed JSON, empty responses, timeouts, and Ollama being unavailable.
+- Never treat arbitrary code comments, TODO strings, hypothetical examples, or quoted instructions as confirmed user commitments without appropriate context.
+- Distinguish a real decision from a suggestion, alternative, unresolved discussion, or hypothetical statement.
+- Include a source excerpt that can be verified against the original indexed chunk.
+- Avoid extracting the same item repeatedly.
+- Preserve the original source path and enough context to let the user verify the claim.
+
+Extracted records must start with status `suggested`. The user must explicitly confirm them before they become open tasks or accepted decisions.
+
+Do not automatically extract the entire index on every application launch. Provide an explicit action such as “Find tasks and decisions” and show progress while processing.
+
+If practical, support cancellation and graceful interruption.
+
+## Phase 4 — Add a review interface
+
+Add a dedicated section or tab to the existing UI without disrupting the current search experience.
+
+The interface should include:
+
+- Suggested items awaiting review.
+- Open tasks.
+- Decisions.
+- Completed tasks.
+- Dismissed items, if useful.
+- A loading state, empty state, and error state.
+
+Each suggestion should display:
+
+- Task or decision type.
+- Title and details.
+- Source filename.
+- Supporting excerpt.
+- Confidence, if available.
+- Actions to confirm, edit, or dismiss.
+
+Confirmed tasks should support:
+
+- Mark as completed.
+- Reopen.
+- Edit title and details.
+- Set or change a deadline manually.
+
+Confirmed decisions should support:
+
+- Edit.
+- View source.
+- Dismiss or archive without losing source traceability.
+
+Open the original source file using the existing file-opening mechanism. Handle deleted or inaccessible source files gracefully.
+
+Keep the UI consistent with RecallDesk's existing visual design. Avoid adding large UI libraries just for this feature.
+
+## Phase 5 — Add secure IPC and preload methods
+
+Follow the existing Electron security architecture.
+
+Expose only the necessary operations through `contextBridge`, such as:
+
+- `memory:list`
+- `memory:extract`
+- `memory:confirm`
+- `memory:update`
+- `memory:dismiss`
+- `memory:complete`
+- `memory:reopen`
+- `memory:delete` only if genuinely necessary.
+
+Use typed arguments and return values.
+
+Validate all renderer-provided IDs, fields, status transitions, and source paths in the main process.
+
+Do not expose `ipcRenderer`, unrestricted filesystem access, or Node.js APIs directly to the renderer.
+
+Prevent duplicate concurrent extraction runs and handle application shutdown safely.
+
+Update `src/renderer/src/vite-env.d.ts` to match the actual exposed API.
+
+Use the project's existing naming conventions if they differ from these examples.
+
+## Phase 6 — Integrate memory with RecallDesk search
+
+Once the core feature is stable:
+
+- Allow confirmed tasks and decisions to be searched.
+- Display the original source and excerpt alongside matching memory records.
+- Avoid mixing unreviewed suggestions with confirmed memories without clear labeling.
+- Do not change existing search ranking unless tests demonstrate that a change is needed.
+- Make it possible to navigate from a memory record back to its source.
+
+Treat this as a follow-up to the core implementation, not a reason to delay basic task and decision management.
+
+## Phase 7 — Testing and verification
+
+Add tests using the project's existing test framework, or introduce a lightweight test setup only if necessary.
+
+Test at least:
+
+1. Valid task extraction.
+2. Valid decision extraction.
+3. Malformed Ollama output.
+4. Ollama unavailable or timed out.
+5. Missing or inaccessible source files.
+6. Persistence across application restarts.
+7. Duplicate prevention.
+8. Confirm, edit, dismiss, complete, and reopen operations.
+9. Invalid IPC inputs and IDs.
+10. Existing indexing and search continue to work.
+11. Empty index and unsupported files.
+12. Repeated extraction does not create duplicate records.
+
+Run the existing tests, type checks, and production build. Fix regressions introduced by your changes.
+
+If packaging is practical, verify that the feature's required files are included in the packaged application. Do not claim that packaging or runtime behavior was verified unless you actually tested it.
+
+## Implementation rules
+
+- Work incrementally and keep changes focused.
+- Inspect files before editing.
+- Reuse existing helpers, Ollama configuration, and IPC conventions.
+- Do not overwrite the current app with a demo implementation.
+- Do not remove existing features to make the new feature easier.
+- Do not silently swallow errors.
+- Keep sensitive document content on the local machine.
+- Do not create or modify the `.dmg` until the implementation passes the relevant checks.
+
+## Final response
+
+After implementation, report:
+
+1. Files created or modified.
+2. How extraction and persistence work.
+3. How users review and manage tasks and decisions.
+4. Tests and build commands actually run, including their results.
+5. Known limitations and any manual verification still required.
+6. Exact commands to run the app and package it for macOS.
+
+Start by inspecting the repository, then implement the smallest complete working version of Decision & Task Memory. Do not stop after producing a plan or pseudocode.
+
+---
+
+# RecallDesk — Build Universal Project Intelligence
+
+## Product vision
+
+Transform RecallDesk from a local file-search and task-tracking application into a universal, privacy-first Project Intelligence assistant.
+
+RecallDesk must eventually work with more than source code or folders. It should help users understand their work across documents, screenshots, images, notes, code, and other supported sources.
+
+The central question is:
+
+"What am I working on, what matters, and what should I do next?"
+
+The application should analyze user-selected context, extract evidence-backed findings, suggest useful next actions, and allow users to manage those actions through the existing Tasks & Decisions system.
+
+## 1. Inspect the existing application first
+
+RecallDesk currently uses Electron, React, TypeScript, electron-vite, local file indexing, semantic search through Hugging Face Transformers, and a local Ollama integration.
+
+Relevant files include:
+
+- `src/main/index.ts`
+- `src/preload/index.ts`
+- `src/renderer/src/App.tsx`
+- `src/renderer/src/vite-env.d.ts`
+- `src/main/memory/`
+- `src/renderer/src/styles.css`
+- `package.json`
+
+Inspect the actual repository, existing interfaces, current file support, IPC handlers, local AI integration, and test setup before making changes.
+
+The current Tasks & Decisions feature already supports persistent memory records and a review workflow. Reuse and extend it rather than creating a second task system.
+
+Do not assume that every file format or image capability already exists.
+
+## 2. Build a universal source-selection workflow
+
+Add a Project Intelligence workspace where users can select what they want to analyze.
+
+Support these source types according to actual implementation capability:
+
+- Individual files.
+- Multiple selected files.
+- Entire folders and projects.
+- Previously indexed content.
+- PDFs and text documents.
+- Markdown and plain-text notes.
+- Screenshots and other images.
+- Other formats through future source adapters.
+
+Users should be able to add multiple sources to one analysis.
+
+Reuse the existing secure folder picker, file-opening mechanisms, and indexing pipeline where appropriate. Add a dedicated file picker for individual files and multiple files.
+
+Allow analysis of selected files without requiring the user to index an entire folder first.
+
+Display the selected sources before starting analysis, including their names, types, and any unsupported-format warnings.
+
+Never silently ignore unsupported files.
+
+For large folders, provide progress information and sensible limits. Respect existing excluded directories, file-size limits, and user-selected scope.
+
+## 3. Support different analysis goals
+
+Provide built-in analysis modes:
+
+### Project overview
+Explain what the selected material contains, its purpose, major components, and current state.
+
+### What should I do next?
+Identify actionable work based on the available evidence and the user's stated goal.
+
+### Extract tasks
+Find explicit tasks, TODOs, deadlines, commitments, acceptance criteria, and action items in documents and notes.
+
+### Decisions and open questions
+Identify documented decisions, their rationale, alternatives, unresolved questions, and decisions that may need confirmation.
+
+### Find potential issues
+Identify evidence-backed concerns, inconsistencies, incomplete requirements, and potential risks.
+
+Do not claim that a code defect exists unless the available evidence supports that conclusion. Distinguish confirmed failures, explicit TODOs, inferred risks, and suggestions.
+
+### Analyze screenshots and images
+Interpret visible text, interfaces, diagrams, error messages, whiteboards, and handwritten notes when the selected local model supports the required vision capability.
+
+### Custom instructions
+Let users describe a specific analysis goal in their own words.
+
+Allow users to select a goal and optionally provide additional instructions before starting analysis.
+
+## 4. Design a common source-adapter architecture
+
+Create a maintainable architecture that separates source ingestion from analysis.
+
+A source adapter should provide, where supported:
+
+- Source ID.
+- Original file path.
+- Display name.
+- Source type and MIME type.
+- Extracted text or other supported content.
+- Source metadata.
+- Evidence locations, such as page numbers, line ranges, or image regions when available.
+- Extraction status and errors.
+
+Use appropriate parsers for supported document formats.
+
+For screenshots and images, use a local vision-capable model or OCR pipeline only when available and compatible. Do not assume a text-only Ollama model can analyze images.
+
+Keep image bytes, document content, and other sensitive data on the local machine.
+
+Design adapters so future formats can be added without rewriting the task-management system.
+
+## 5. Build the analysis pipeline
+
+The workflow should be:
+
+1. Validate the user's selected sources.
+2. Extract text or other supported representations.
+3. Preserve source metadata and evidence locations.
+4. Prepare relevant context within the configured local model's limits.
+5. Run the selected analysis goal through the local AI integration.
+6. Validate the model's structured output.
+7. Verify that source excerpts correspond to actual extracted content.
+8. Deduplicate findings.
+9. Present results for user review.
+10. Allow approved tasks and decisions to be saved into persistent memory.
+
+Use batching, progress reporting, cancellation, and graceful error handling where appropriate.
+
+For large folders, analyze manageable batches and provide an overall summary without exceeding model context limits.
+
+Do not send files to external AI services. Do not add telemetry or cloud dependencies.
+
+If a local model is unavailable or lacks the required capability, explain the limitation and offer a supported alternative. For example, text extraction may still work when image understanding is unavailable.
+
+Do not pretend that an image was visually analyzed if only its filename or metadata was read.
+
+## 6. Use structured, evidence-backed findings
+
+Define a typed finding model that can represent:
+
+- Tasks.
+- Decisions.
+- Requirements.
+- Open questions.
+- Potential issues.
+- Recommendations.
+- Project summaries.
+
+Each finding should include, when applicable:
+
+- Unique ID.
+- Finding type.
+- Title.
+- Description.
+- Reason or rationale.
+- Source references.
+- Supporting excerpts or evidence.
+- Confidence or evidence classification.
+- Review status.
+- Creation and update timestamps.
+
+Use explicit evidence classifications such as:
+
+- Explicitly stated.
+- Directly observed.
+- Inferred.
+- Suggested.
+
+Do not treat confidence scores as guarantees of correctness.
+
+Keep evidence references linked to the original file and, when available, page number, line range, or image region.
+
+For image findings, include an explanation of the visible evidence and distinguish OCR text from visual interpretation.
+
+If a claim cannot be traced to the supplied material, label it as an inference or omit it.
+
+## 7. Integrate with Tasks & Decisions
+
+Reuse the existing persistent memory store and CRUD operations.
+
+Users should be able to:
+
+- Accept a suggested task.
+- Edit a task before accepting it.
+- Dismiss an irrelevant finding.
+- Mark a confirmed task as completed.
+- Reopen a completed task.
+- Save a documented decision.
+- Edit or archive a decision.
+- Open the original source.
+- Review the evidence behind a finding.
+
+Never automatically convert every AI recommendation into a confirmed task or decision.
+
+Preserve the distinction between discovered suggestions, user-approved tasks, documented decisions, and AI-generated recommendations.
+
+Avoid duplicates across repeated analyses, but do not merge unrelated tasks merely because their wording is similar.
+
+## 8. Design the user interface
+
+Add a Project Intelligence workspace that matches RecallDesk's existing visual design.
+
+It should include:
+
+- Source selection.
+- A list of selected sources.
+- Analysis mode selection.
+- Optional custom instructions.
+- Start analysis and cancel controls.
+- Progress and error states.
+- A project overview.
+- Categorized findings.
+- Source evidence.
+- Actions to accept, edit, dismiss, or open a source.
+- A clear way to send accepted tasks and decisions into the existing Tasks & Decisions views.
+
+Keep Search Memory, existing indexing, embeddings, and current AI question-answering functionality intact.
+
+Avoid unnecessary UI libraries and avoid overwhelming the user with configuration options.
+
+## 9. Privacy and security
+
+- Keep processing local.
+- Use Electron's existing secure IPC patterns.
+- Validate all renderer-provided file paths and operations in the main process.
+- Do not expose unrestricted filesystem APIs to the renderer.
+- Avoid reading outside the user's selected scope without explicit permission.
+- Respect symlinks and directory traversal protections.
+- Do not execute code found in analyzed files.
+- Do not modify project files as a side effect of analysis.
+- Do not automatically create, delete, or edit source files.
+- Store analysis results and memory records using safe local persistence.
+- Explain what is unsupported or failed rather than silently producing incomplete results.
+
+## 10. Implementation strategy
+
+Implement this incrementally.
+
+Phase A:
+Create the Project Intelligence workspace and dedicated source-selection workflow. Support individual files, multiple files, folders, and existing indexed content.
+
+Phase B:
+Implement reliable text extraction for currently supported formats and add appropriate document parsers for the next formats.
+
+Phase C:
+Connect the analysis goals to the existing local AI integration and return structured findings with source evidence.
+
+Phase D:
+Add screenshot and image analysis through an appropriate local OCR or vision-capable pipeline. Verify model compatibility before implementation.
+
+Phase E:
+Integrate findings with Tasks & Decisions, including review, approval, deduplication, and persistence.
+
+Phase F:
+Add tests for source adapters, unsupported formats, extraction errors, malformed AI output, evidence validation, duplicate handling, cancellation, persistence, and IPC security.
+
+Do not attempt to implement every future format in one step. Build a working end-to-end path first and expand it through source adapters.
+
+## 11. Verification
+
+Run the existing type checks, tests, and production build.
+
+Test manually with:
+- A code project containing explicit TODOs.
+- A Markdown project plan.
+- A document containing a list of action items.
+- A screenshot containing readable text.
+- A mixed collection of files.
+- An unsupported file format.
+- An unavailable local model.
+- A repeated analysis of the same source.
+
+Document which formats and model capabilities actually work. Do not claim image understanding, PDF support, or other capabilities until they have been implemented and verified.
+
+Start by inspecting the repository, then implement Phase A as a complete working feature. Continue into Phase B only as far as can be done safely without breaking the existing app. Report modified files, commands run, test results, and known limitations.
+
+---
+
+# RecallDesk Feature — Searchable Clipboard Memory
+
+You are working on my existing RecallDesk application, a local-first desktop app built with Electron, React, TypeScript, and electron-vite.
+
+Implement Searchable Clipboard Memory as a new feature that captures, stores, searches, and restores useful copied text.
+
+## Product goal
+
+RecallDesk should remember useful information users copy while working, allowing them to find it later through keyword search and, where practical, semantic search.
+
+Examples:
+- Code snippets.
+- Terminal commands.
+- Error messages.
+- Documentation excerpts.
+- URLs.
+- Notes and copied task descriptions.
+- Configuration examples.
+
+This should feel like a searchable personal knowledge memory, not merely a chronological clipboard list.
+
+## Phase 1 — Inspect the existing architecture
+
+Before coding, inspect:
+- `src/main/index.ts`
+- `src/preload/index.ts`
+- `src/renderer/src/App.tsx`
+- `src/renderer/src/vite-env.d.ts`
+- `src/renderer/src/styles.css`
+- Existing memory and search modules.
+- `package.json` and the current test setup.
+
+Determine how Electron clipboard access, global shortcuts, persistence, search, settings, and IPC currently work.
+
+Reuse existing patterns. Do not rewrite the app or break Project Intelligence, Tasks & Decisions, semantic search, or existing AI features.
+
+## Phase 2 — Build a privacy-first clipboard capture service
+
+Use Electron's clipboard APIs in the main process.
+
+Requirements:
+- Add an explicit Clipboard Memory setting that is OFF by default.
+- Explain what will be captured before the user enables it.
+- Start monitoring only after the user enables the feature.
+- Stop monitoring immediately when disabled.
+- Use efficient, bounded polling or another appropriate approach supported by Electron.
+- Capture text only in the first version.
+- Detect changes to clipboard text without repeatedly storing the same content.
+- Store a capture timestamp.
+- Record the source application only if it can be obtained reliably and safely. Do not guess it.
+- Handle empty clipboard content and read failures gracefully.
+- Avoid unnecessary CPU usage and duplicate writes.
+
+Never capture clipboard content before the user enables the feature.
+
+Do not transmit clipboard data to external services.
+
+## Phase 3 — Protect sensitive information
+
+Clipboard contents can contain passwords, access tokens, API keys, private messages, and other sensitive data.
+
+Implement conservative protections:
+- Ignore obviously sensitive patterns such as common API-key formats, private keys, passwords, and access tokens.
+- Do not log clipboard contents to application logs.
+- Provide a configurable minimum text length and maximum capture size.
+- Provide an exclusion list for sensitive applications or contexts where reliable detection is possible.
+- Never claim that automated secret detection catches every secret.
+- Let users exclude individual entries from future indexing and delete them permanently.
+- Do not persist sensitive content just to classify it later.
+- Do not store binary clipboard data or images in this first version.
+- Provide a clear pause/resume control.
+
+Explain the privacy limitations in the settings UI.
+
+## Phase 4 — Persist clipboard items separately
+
+Create a dedicated typed clipboard-memory model and store.
+
+Each entry should include:
+- Stable ID.
+- Text content.
+- Capture timestamp.
+- Content hash for duplicate detection.
+- Optional source application metadata.
+- Pinned status.
+- Optional user label.
+- Optional content type such as code, URL, command, or plain text.
+
+Persist entries locally using the existing safe storage conventions.
+
+Keep clipboard storage separate from `index-v1.json` and `memory-items-v1.json` so the existing search index and task/decision records are not corrupted.
+
+Implement:
+- Add entry.
+- List entries.
+- Search entries.
+- Pin/unpin.
+- Rename or label an entry.
+- Delete an entry.
+- Clear clipboard history.
+- Enforce a configurable retention limit.
+
+Use atomic writes where appropriate. Avoid keeping unbounded clipboard history in memory or on disk.
+
+## Phase 5 — Add a Clipboard Memory interface
+
+Add a Clipboard Memory section to RecallDesk's existing navigation.
+
+Include:
+- Enable/disable control.
+- Pause/resume control.
+- Search input.
+- Recent clipboard entries.
+- Pinned entries.
+- Capture timestamps.
+- Content-type labels when detection is reliable.
+- Preview for long snippets.
+- Copy again action.
+- Pin/unpin action.
+- Rename or label action.
+- Delete entry action.
+- Clear-history action with confirmation.
+- Empty, disabled, loading, and error states.
+
+Users should be able to search for exact text and keywords. Use the existing semantic search infrastructure if it can be reused safely and efficiently, but keyword search must still work when the embedding model is unavailable.
+
+Do not add unnecessary dependencies.
+
+## Phase 6 — Global shortcut and quick retrieval
+
+Inspect the existing global shortcut configuration before adding another shortcut.
+
+If a suitable shortcut already exists, extend the existing mechanism or select a non-conflicting default.
+
+Provide a quick-access view that lets users search clipboard memory and copy an old entry without navigating through multiple screens.
+
+Do not steal focus from other applications unnecessarily. Handle shortcut registration failures gracefully.
+
+## Phase 7 — Optional semantic search
+
+If practical, integrate clipboard entries with the existing local embedding model.
+
+Requirements:
+- Generate embeddings locally.
+- Reuse the existing model where possible.
+- Do not regenerate every embedding on each application launch.
+- Persist or cache embeddings appropriately.
+- Keep keyword search available as a fallback.
+- Ensure deleting an entry also removes its associated embedding.
+- Avoid sending clipboard content to Ollama or any external service unless the user explicitly initiates a separate AI action and the local-only behavior remains intact.
+
+Treat semantic search as secondary to reliable capture, storage, privacy, and keyword search.
+
+## Phase 8 — Secure Electron IPC
+
+Expose only typed, specific clipboard-memory operations through `contextBridge`.
+
+Use the existing IPC conventions and validate renderer-provided arguments in the main process.
+
+Do not expose unrestricted filesystem access, `ipcRenderer`, or Node.js APIs to the renderer.
+
+Prevent renderer input from enabling capture without the explicit user-controlled setting.
+
+Ensure capture stops cleanly during application shutdown and when the feature is disabled.
+
+## Phase 9 — Testing
+
+Add tests using the existing test framework.
+
+Test:
+1. Clipboard capture is disabled by default.
+2. Enabling capture stores new text.
+3. Unchanged text does not create duplicate entries.
+4. Sensitive-looking content is filtered according to the implemented rules.
+5. Empty and oversized clipboard content is handled correctly.
+6. Search works with keyword matches.
+7. Pinning and unpinning work.
+8. Deletion removes the stored entry and associated embedding.
+9. Retention limits are enforced.
+10. Clearing history requires confirmation in the UI.
+11. Disabling capture stops future capture.
+12. Existing RecallDesk indexing and memory features still work.
+
+Mock clipboard access in automated tests. Do not read or alter the developer's real clipboard during tests.
+
+Run the project's typecheck, tests, and production build. Fix regressions caused by your changes.
+
+## Implementation order
+
+Implement a small, complete working version in this order:
+
+1. Privacy setting and main-process capture service.
+2. Separate local persistence and deduplication.
+3. Clipboard Memory interface and keyword search.
+4. Copy, pin, delete, and clear-history actions.
+5. Global quick-access shortcut.
+6. Optional semantic search.
+
+Do not build all phases at once if that risks breaking the existing app. Finish and verify each stage before proceeding.
+
+## Final report
+
+Report:
+- Files created or modified.
+- How capture is enabled and stopped.
+- How sensitive-content filtering works and its limitations.
+- How clipboard items are stored and searched.
+- Tests and build commands actually run.
+- Any features that remain incomplete.
+- Exact commands to run and package RecallDesk for macOS.
+
+Start by inspecting the repository and implement the smallest complete working version. Do not stop at a plan or a UI mockup.
+
+---
+
+# RecallDesk Feature 6 — Daily Memory Briefing
+
+## Product vision
+
+Implement an optional Daily Memory Briefing in my existing RecallDesk desktop application.
+
+RecallDesk is a local-first Electron + React + TypeScript application with existing document indexing, search, Tasks & Decisions, Project Intelligence, and potentially Research & Synthesis and Clipboard Memory features.
+
+Inspect the actual repository before editing. Some previously planned features may be incomplete or implemented differently from their descriptions.
+
+The goal is to help users quickly understand:
+- What relevant project activity occurred recently.
+- Which tasks remain unfinished.
+- Which saved decisions and notes matter.
+- What they could focus on next.
+
+The briefing must be grounded in existing local information rather than generic AI-generated productivity advice.
+
+## Phase 1 — Inspect the existing architecture
+
+Inspect:
+- `src/main/index.ts`
+- `src/preload/index.ts`
+- `src/renderer/src/App.tsx`
+- `src/renderer/src/vite-env.d.ts`
+- `src/renderer/src/styles.css`
+- Existing memory, task, project, research, and indexing modules.
+- Current notification, settings, persistence, and test infrastructure.
+
+Identify which features and activity timestamps actually exist.
+
+Reuse existing stores and APIs. Do not invent project history or create a second task system.
+
+## Phase 2 — Build the briefing interface
+
+Add a Daily Briefing section to RecallDesk.
+
+Include:
+- Today's briefing.
+- A Generate Briefing action.
+- A concise summary.
+- Recent verified project activity.
+- Open tasks and recorded deadlines.
+- Relevant saved decisions and notes.
+- One to three suggested focus items.
+- Source references and actions to open the relevant item.
+- Briefing generation time.
+- Loading, empty, error, and insufficient-data states.
+- A history view for previously saved briefings.
+
+Allow users to open a cited task, decision, project, or source directly.
+
+Clearly distinguish verified facts, saved user information, and AI-generated recommendations.
+
+## Phase 3 — Assemble briefing context
+
+Build the briefing from available local information.
+
+Potential sources include:
+- Confirmed open and completed tasks.
+- Saved decisions.
+- Indexed document metadata.
+- Project snapshots and recent project analyses.
+- Saved research reports.
+- Relevant notes retrieved through existing search.
+- Clipboard Memory only if it exists, is enabled, and the user explicitly permits its content to be included.
+
+Use only sources that actually exist in the repository.
+
+Prioritize information based on:
+- Explicit deadlines.
+- Unfinished work.
+- Recent verified changes.
+- Relevance to the selected project or current task.
+- Previously saved user priorities, if available.
+
+Do not invent deadlines, commitments, recent activity, or priorities.
+
+If there is insufficient evidence, produce a short briefing that clearly states the available information is limited.
+
+## Phase 4 — Track project activity accurately
+
+Inspect the existing indexing pipeline and project stores.
+
+Where practical, add minimal local activity metadata for:
+- Successful indexing runs.
+- Files added, changed, or removed during an indexing run.
+- Tasks created, completed, or reopened.
+- Decisions added or edited.
+- Project snapshots refreshed.
+- Research reports created or updated.
+
+Only report file changes when actual before-and-after metadata or content comparisons support them.
+
+Do not label a file as recently edited merely because it was indexed recently.
+
+Do not claim to track all filesystem changes. Do not add a background filesystem watcher unless it is necessary and explicitly implemented.
+
+Avoid logging document contents in activity records.
+
+## Phase 5 — Generate the briefing
+
+Use a deterministic data-assembly stage first, followed by the existing local AI integration when available.
+
+The deterministic stage should gather and rank relevant facts, tasks, and activity.
+
+The AI stage may summarize this information and suggest a small number of useful next actions.
+
+Requirements:
+- Use the configured local model.
+- Do not silently switch to a cloud model.
+- Keep source paths and references attached to relevant statements.
+- Validate model output before saving it.
+- Avoid duplicate recommendations.
+- Do not present speculation as verified fact.
+- Handle malformed model output and model unavailability gracefully.
+- Provide a useful non-AI fallback based on saved tasks and activity.
+- Avoid sending the entire document index to the model.
+- Do not regenerate the briefing on every application launch.
+
+Allow the user to choose between an all-project briefing and a project-specific briefing if the existing project model supports it.
+
+## Phase 6 — Save briefing history
+
+Persist briefings locally in a separate store or an appropriate existing store.
+
+Each briefing should include:
+- Stable ID.
+- Local calendar date.
+- Creation timestamp.
+- Briefing scope.
+- Summary.
+- Structured sections.
+- Source references.
+- Suggested focus items.
+- Model metadata when applicable.
+
+Use the existing safe persistence conventions, including atomic writes where appropriate.
+
+Prevent accidental duplicate daily briefings unless the user explicitly requests a regeneration.
+
+Allow users to regenerate, open, and delete saved briefings.
+
+Deleting a briefing must not delete the original tasks, decisions, project data, or source files.
+
+## Phase 7 — Optional local notifications
+
+Add notification settings only after the core briefing works.
+
+Users should be able to:
+- Enable or disable daily reminders.
+- Choose a preferred local time.
+- Select a briefing scope if supported.
+- Generate briefings manually regardless of notification settings.
+
+Use supported Electron notification APIs and a reliable scheduling mechanism.
+
+Handle application restarts, time zones, duplicate notifications, and application shutdown appropriately.
+
+Do not claim that a briefing can be delivered while RecallDesk is fully closed unless a real supported background mechanism exists.
+
+If the app must be running for reminders, explain that clearly in the UI.
+
+Notifications must not expose sensitive document excerpts or clipboard contents on the lock screen. Use a generic notification title and let users open RecallDesk for details.
+
+Do not implement invasive background monitoring.
+
+## Phase 8 — Privacy controls
+
+Provide clear controls for:
+- Enabling or disabling Daily Memory Briefing.
+- Allowing or disabling local notifications.
+- Selecting included source categories.
+- Excluding clipboard content.
+- Deleting saved briefing history.
+
+Keep all processing and storage local.
+
+Use secure IPC and validate renderer-provided inputs.
+
+Never transmit indexed files, task details, clipboard contents, or briefings to external services.
+
+## Phase 9 — Testing
+
+Add tests for:
+- Briefing generation from open tasks.
+- Inclusion of real recorded deadlines.
+- Relevant decisions and notes.
+- Empty or incomplete data.
+- Verified versus unverified activity.
+- AI unavailable fallback.
+- Malformed model responses.
+- Citation preservation.
+- Briefing persistence across restarts.
+- Regeneration and duplicate handling.
+- Notification settings and scheduling, if implemented.
+- Existing search and task-management regressions.
+
+Run the existing test suite, typecheck, and production build.
+
+Do not claim tests passed unless they actually ran.
+
+## Implementation order
+
+Implement incrementally:
+
+1. Daily Briefing UI.
+2. Deterministic briefing assembly from existing tasks, decisions, and verified activity.
+3. Optional local AI summarization.
+4. Persistent briefing history.
+5. Project-specific briefings.
+6. Optional daily notifications and settings.
+
+Prioritize a useful manual briefing before implementing scheduling.
+
+Do not break existing functionality or rewrite the application.
+
+## Final report
+
+Report:
+- Files created and modified.
+- Data sources used.
+- How activity is verified.
+- How briefings are generated and saved.
+- Whether notifications work only while the application is running.
+- Test, typecheck, and build results.
+- Known limitations.
+- Commands to run and package the application.
+
+Start by inspecting the repository and implement the smallest complete working version.
+
+---
+
+lets sumbit hthis porject
