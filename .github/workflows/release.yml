@@ -6,9 +6,13 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
@@ -20,7 +24,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install dependencies
@@ -30,16 +34,22 @@ jobs:
         run: npm run build
 
       - name: Package for Linux
-        if: matrix.os == 'ubuntu-latest'
-        run: npx electron-builder --linux AppImage tar.gz
+        if: runner.os == 'Linux'
+        run: npx electron-builder --linux AppImage tar.gz --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Package for Windows
-        if: matrix.os == 'windows-latest'
-        run: npx electron-builder --win portable zip
+        if: runner.os == 'Windows'
+        run: npx electron-builder --win portable zip --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Package for macOS
-        if: matrix.os == 'macos-latest'
-        run: npx electron-builder --mac dmg zip
+        if: runner.os == 'macOS'
+        run: npx electron-builder --mac dmg zip --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Release Artifacts
         uses: softprops/action-gh-release@v2
