@@ -1,0 +1,21 @@
+{
+  "cli_version": "0.11.5",
+  "checkpoint_id": "01M59G289WQY253QEAMPS3CSHP",
+  "session_id": "c56fcce3-e67f-4429-8e0d-fcd4c50f061d",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-19T07:12:25.634744Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/build.yml",
+    ".github/workflows/release.yml"
+  ],
+  "agent": "Antigravity",
+  "model": "",
+  "turn_id": "5f7ab6be48c7",
+  "checkpoint_transcript_start": 1212,
+  "transcript_lines_at_start": 1212,
+  "session_metrics": {
+    "turn_count": 3
+  }
+}

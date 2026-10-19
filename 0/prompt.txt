@@ -1,0 +1,35 @@
+[Skip to content](https://github.com/aashutoshkumarbhardwaj/openSearch/actions/runs/39156567304#start-of-content)
+[aashutoshkumarbhardwaj](https://github.com/aashutoshkumarbhardwaj)
+[openSearch](https://github.com/aashutoshkumarbhardwaj/openSearch)
+Repository navigation
+[Code](https://github.com/aashutoshkumarbhardwaj/openSearch)
+[Issues](https://github.com/aashutoshkumarbhardwaj/openSearch/issues)
+[Pull requests](https://github.com/aashutoshkumarbhardwaj/openSearch/pulls)
+[Agents](https://github.com/aashutoshkumarbhardwaj/openSearch/agents?author=aashutoshkumarbhardwaj)
+[Actions](https://github.com/aashutoshkumarbhardwaj/openSearch/actions)
+[Projects](https://github.com/aashutoshkumarbhardwaj/openSearch/projects)
+[Wiki](https://github.com/aashutoshkumarbhardwaj/openSearch/wiki)
+[Security and quality1 (1)](https://github.com/aashutoshkumarbhardwaj/openSearch/security)
+[Insights](https://github.com/aashutoshkumarbhardwaj/openSearch/pulse)
+[Settings](https://github.com/aashutoshkumarbhardwaj/openSearch/settings)
+[Release OpenSearch](https://github.com/aashutoshkumarbhardwaj/openSearch/actions/workflows/release.yml)
+feat: add multiplatform packaging for macOS, Windows, and Linux with … #1
+All jobs
+Run details
+Triggered via push 12 hours ago[aashutoshkumarbhardwaj](https://github.com/aashutoshkumarbhardwaj)pushed[ea57d35](https://github.com/aashutoshkumarbhardwaj/openSearch/commit/ea57d357d81126e41ef18df675f19449fcf8889f)
+[v0.1.0](https://github.com/aashutoshkumarbhardwaj/openSearch/tree/refs/tags/v0.1.0)
+StatusFailure
+Total duration[2m 48s](https://github.com/aashutoshkumarbhardwaj/openSearch/actions/runs/39156567304/usage)
+Artifacts–
+Annotations
+5 errors, 3 warnings, and 2 notices
+[build (macos-latest)](https://github.com/aashutoshkumarbhardwaj/openSearch/actions/runs/39156567304/job/117760905557#step:8:24)Process completed with exit code 1.
+[build (windows-latest)](https://github.com/aashutoshkumarbhardwaj/openSearch/actions/runs/39156567304/job/117760905706)The strategy configuration was canceled because "build.macos-latest" failed
+[build (windows-latest)](https://github.com/aashutoshkumarbhardwaj/openSearch/actions/runs/39156567304/job/117760905706#step:7:70)The operation was canceled.
+[build (ubuntu-latest)](https://github.com/aashutoshkumarbhardwaj/openSearch/actions/runs/39156567304/job/117760905675)The strategy configuration was canceled because "build.macos-latest" failed
+[build (ubuntu-latest)](https://github.com/aashutoshkumarbhardwaj/openSearch/actions/runs/39156567304/job/117760905675#step:6:19)The operation was canceled.
+[build (macos-latest)](https://github.com/aashutoshkumarbhardwaj/openSearch/actions/runs/39156567304/job/117760905557#step:19:2)Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4. For more information see: [https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/](https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/)
+[build (windows-latest)](https://github.com/aashutoshkumarbhardwaj/openSearch/actions/runs/39156567304/job/117760905706#step:19:2)Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4. For more information see: [https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/](https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/)
+[build (ubuntu-latest)](https://github.com/aashutoshkumarbhardwaj/openSearch/actions/runs/39156567304/job/117760905675#step:19:6)Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4. For more information see: [https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/](https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/)
+[build (macos-latest)](https://github.com/aashutoshkumarbhardwaj/openSearch/actions/runs/39156567304/job/117760905557)Due to capacity constraints, jobs targeting macOS arm64 runners may experience longer queue times.
+[build (ubuntu-latest)](https://github.com/aashutoshkumarbhardwaj/openSearch/actions/runs/39156567304/job/117760905675)"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see [https://github.com/actions/runner-images/issues/14748](https://github.com/actions/runner-images/issues/14748)"
