@@ -14,10 +14,10 @@ Prebuilt binaries are available for **macOS**, **Windows**, and **Linux** direct
 | :--- | :--- | :--- |
 | 🍏 **macOS (Apple)** | [**OpenSearch-0.1.0-arm64.dmg**](https://github.com/aashutoshkumarbhardwaj/openSearch/releases/download/v0.1.0/OpenSearch-0.1.0-arm64.dmg) | macOS Disk Image Installer |
 | 🍏 **macOS (Zip)** | [**OpenSearch-0.1.0-arm64-mac.zip**](https://github.com/aashutoshkumarbhardwaj/openSearch/releases/download/v0.1.0/OpenSearch-0.1.0-arm64-mac.zip) | Portable macOS App Zip |
-| 🪟 **Windows (Exe)** | [**OpenSearch 0.1.0.exe**](https://github.com/aashutoshkumarbhardwaj/openSearch/releases/download/v0.1.0/OpenSearch.0.1.0.exe) | Portable Windows Executable |
-| 🪟 **Windows (Zip)** | [**OpenSearch-0.1.0-arm64-win.zip**](https://github.com/aashutoshkumarbhardwaj/openSearch/releases/download/v0.1.0/OpenSearch-0.1.0-arm64-win.zip) | Windows Distribution Archive |
-| 🐧 **Linux (AppImage)** | [**OpenSearch-0.1.0-arm64.AppImage**](https://github.com/aashutoshkumarbhardwaj/openSearch/releases/download/v0.1.0/OpenSearch-0.1.0-arm64.AppImage) | Standalone Linux Executable |
-| 🐧 **Linux (Tarball)** | [**opensearch-0.1.0-arm64.tar.gz**](https://github.com/aashutoshkumarbhardwaj/openSearch/releases/download/v0.1.0/opensearch-0.1.0-arm64.tar.gz) | Linux Distribution Archive |
+| 🪟 **Windows (Exe)** | [**OpenSearch.0.1.0.exe**](https://github.com/aashutoshkumarbhardwaj/openSearch/releases/download/v0.1.0/OpenSearch.0.1.0.exe) | Portable Windows Executable |
+| 🪟 **Windows (Zip)** | [**OpenSearch-0.1.0-win.zip**](https://github.com/aashutoshkumarbhardwaj/openSearch/releases/download/v0.1.0/OpenSearch-0.1.0-win.zip) | Windows Distribution Archive |
+| 🐧 **Linux (AppImage)** | [**OpenSearch-0.1.0.AppImage**](https://github.com/aashutoshkumarbhardwaj/openSearch/releases/download/v0.1.0/OpenSearch-0.1.0.AppImage) | Standalone Linux Executable |
+| 🐧 **Linux (Tarball)** | [**opensearch-0.1.0.tar.gz**](https://github.com/aashutoshkumarbhardwaj/openSearch/releases/download/v0.1.0/opensearch-0.1.0.tar.gz) | Linux Distribution Archive |
 
 ---
 
